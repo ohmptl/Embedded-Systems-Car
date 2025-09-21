@@ -133,21 +133,21 @@ endif
 
 # Add inputs and outputs from these tool invocations to the build variables 
 EXE_OUTPUTS += \
-ECE306New.out 
+EmbeddedSystemCar.out 
 
 EXE_OUTPUTS__QUOTED += \
-"ECE306New.out" 
+"EmbeddedSystemCar.out" 
 
 
 # All Target
 all: $(OBJS) $(CMD_SRCS) $(GEN_CMDS)
-	@$(MAKE) --no-print-directory -Onone "ECE306New.out"
+	@$(MAKE) --no-print-directory -Onone "EmbeddedSystemCar.out"
 
 # Tool invocations
-ECE306New.out: $(OBJS) $(CMD_SRCS) $(GEN_CMDS)
+EmbeddedSystemCar.out: $(OBJS) $(CMD_SRCS) $(GEN_CMDS)
 	@echo 'Building target: "$@"'
 	@echo 'Invoking: MSP430 Linker'
-	"C:/ti/ccs2030/ccs/tools/compiler/ti-cgt-msp430_21.6.1.LTS/bin/cl430" -vmspx --use_hw_mpy=F5 --advice:power=all --advice:hw_config=all --define=__MSP430FR2355__ --define=_FRWP_ENABLE --define=_INFO_FRWP_ENABLE -g --printf_support=minimal --diag_warning=225 --diag_wrap=off --display_error_number --silicon_errata=CPU21 --silicon_errata=CPU22 --silicon_errata=CPU40 -z -m"ECE306New.map" --heap_size=160 --stack_size=160 --cinit_hold_wdt=on -i"C:/ti/ccs2030/ccs/ccs_base/msp430/include" -i"C:/ti/ccs2030/ccs/ccs_base/msp430/lib/FR2xx" -i"C:/ti/ccs2030/ccs/tools/compiler/ti-cgt-msp430_21.6.1.LTS/lib" -i"C:/ti/ccs2030/ccs/tools/compiler/ti-cgt-msp430_21.6.1.LTS/include" --priority --reread_libs --define=_FRWP_ENABLE --define=_INFO_FRWP_ENABLE --diag_wrap=off --display_error_number --warn_sections --xml_link_info="ECE306New_linkInfo.xml" --use_hw_mpy=F5 --rom_model -o "ECE306New.out" $(ORDERED_OBJS)
+	"C:/ti/ccs2030/ccs/tools/compiler/ti-cgt-msp430_21.6.1.LTS/bin/cl430" -vmspx --use_hw_mpy=F5 --advice:power=all --advice:hw_config=all --define=__MSP430FR2355__ --define=_FRWP_ENABLE --define=_INFO_FRWP_ENABLE -g --printf_support=minimal --diag_warning=225 --diag_wrap=off --display_error_number --silicon_errata=CPU21 --silicon_errata=CPU22 --silicon_errata=CPU40 -z -m"EmbeddedSystemCar.map" --heap_size=160 --stack_size=160 --cinit_hold_wdt=on -i"C:/ti/ccs2030/ccs/ccs_base/msp430/include" -i"C:/ti/ccs2030/ccs/ccs_base/msp430/lib/FR2xx" -i"C:/ti/ccs2030/ccs/tools/compiler/ti-cgt-msp430_21.6.1.LTS/lib" -i"C:/ti/ccs2030/ccs/tools/compiler/ti-cgt-msp430_21.6.1.LTS/include" --priority --reread_libs --define=_FRWP_ENABLE --define=_INFO_FRWP_ENABLE --diag_wrap=off --display_error_number --warn_sections --xml_link_info="EmbeddedSystemCar_linkInfo.xml" --use_hw_mpy=F5 --rom_model -o "EmbeddedSystemCar.out" $(ORDERED_OBJS)
 	@echo 'Finished building target: "$@"'
 	@echo ' '
 
