@@ -17,3 +17,4 @@ dvt/*
 .metadata/*
 RemoteSystemsTempFiles
 RemoteSystemsTempFiles/*
+.theia
