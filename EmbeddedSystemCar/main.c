@@ -15,7 +15,7 @@
 #include  "LCD.h"
 #include  "macros.h"
 #include  "ports.h"
-
+// -----------------------------------------------------
 
 // Function Prototypes
 void main(void);
@@ -24,7 +24,11 @@ void Display_Process(void);
 void Init_LEDs(void);
 void Carlson_StateMachine(void);
 
-  // Global Variables
+void forward(void);
+void stop(void);
+// -----------------------------------------------------
+
+// Global Variables
 volatile char slow_input_down;
 extern char display_line[4][11];
 extern char *display[4];
@@ -35,47 +39,45 @@ extern volatile unsigned int update_display_count;
 extern volatile unsigned int Time_Sequence;
 extern volatile unsigned char one_time;
 
-
 unsigned int test_value;
 char chosen_direction;
 char change;
 
-unsigned int wheel_move;
-char forward;
+// unsigned int wheel_move;
+// char forward;
 
 
+// thingy
+char start_moving;
+unsigned int moving;
 
-//void main(void){
+// -----------------------------------------------------
+
+
+//------------------------------------------------------------------------------
 void main(void){
-//    WDTCTL = WDTPW | WDTHOLD;   // stop watchdog timer
-
-//------------------------------------------------------------------------------
-// Main Program
-// This is the main routine for the program. Execution of code starts here.
-// The operating system is Back Ground Fore Ground.
-//
-//------------------------------------------------------------------------------
+  // WDTCTL = WDTPW | WDTHOLD;   // stop watchdog timer
   PM5CTL0 &= ~LOCKLPM5;
-// Disable the GPIO power-on default high-impedance mode to activate
-// previously configured port settings
 
   Init_Ports();                        // Initialize Ports
   Init_Clocks();                       // Initialize Clock System
   Init_Conditions();                   // Initialize Variables and Initial Conditions
   Init_Timers();                       // Initialize Timers
   Init_LCD();                          // Initialize LCD
-//P2OUT &= ~RESET_LCD;
-  // Place the contents of what you want on the display, in between the quotes
-// Limited to 10 characters per line
+  // P2OUT &= ~RESET_LCD;
+
   strcpy(display_line[0], "   NCSU   ");
   strcpy(display_line[1], " WOLFPACK ");
   strcpy(display_line[2], "  ECE306  ");
   strcpy(display_line[3], "  GP I/O  ");
   display_changed = TRUE;
-//  Display_Update(0,0,0,0);
+  // Display_Update(0,0,0,0);
 
-  wheel_move = 0;
-  forward = TRUE;
+// thingy
+  // wheel_move = 0;
+  // forward = TRUE;
+  start_moving = '1';
+  moving = 0;
 
 //------------------------------------------------------------------------------
 // Begining of the "While" Operating System
@@ -85,6 +87,19 @@ void main(void){
     Switches_Process();                // Check for switch state change
     Display_Process();                 // Update Display
     P3OUT ^= TEST_PROBE;               // Change State of TEST_PROBE OFF
+
+    if(Time_Sequence > 250){
+         Time_Sequence = 0;
+         start_moving = 0;
+         stop();
+    }
+    if(start_moving == '1'){
+         start_moving = '0';
+         moving = moving + 1;
+         forward();
+    }
+
+
   }
 //------------------------------------------------------------------------------
 

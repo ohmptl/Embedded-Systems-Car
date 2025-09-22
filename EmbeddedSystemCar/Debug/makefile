@@ -18,6 +18,7 @@ ORDERED_OBJS += \
 "./ports.obj" \
 "./stateMachine.obj" \
 "./system.obj" \
+"./wheels.obj" \
 "../Compiled/LCD.obj" \
 "../Compiled/switches.obj" \
 "../Compiled/timersB0.obj" \
@@ -154,8 +155,8 @@ EmbeddedSystemCar.out: $(OBJS) $(CMD_SRCS) $(GEN_CMDS)
 # Other Targets
 clean:
 	-$(RM) $(EXE_OUTPUTS__QUOTED)
-	-$(RM) "clocks.obj" "display.obj" "init.obj" "led.obj" "main.obj" "ports.obj" "stateMachine.obj" "system.obj" 
-	-$(RM) "clocks.d" "display.d" "init.d" "led.d" "main.d" "ports.d" "stateMachine.d" "system.d" 
+	-$(RM) "clocks.obj" "display.obj" "init.obj" "led.obj" "main.obj" "ports.obj" "stateMachine.obj" "system.obj" "wheels.obj" 
+	-$(RM) "clocks.d" "display.d" "init.d" "led.d" "main.d" "ports.d" "stateMachine.d" "system.d" "wheels.d" 
 	-@echo 'Finished clean'
 	-@echo ' '
 

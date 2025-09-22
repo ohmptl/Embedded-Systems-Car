@@ -6,6 +6,7 @@
 "./ports.obj"
 "./stateMachine.obj"
 "./system.obj"
+"./wheels.obj"
 "../Compiled/LCD.obj"
 "../Compiled/switches.obj"
 "../Compiled/timersB0.obj"

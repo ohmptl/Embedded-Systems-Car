@@ -16,7 +16,8 @@ C_SRCS += \
 ../main.c \
 ../ports.c \
 ../stateMachine.c \
-../system.c 
+../system.c \
+../wheels.c 
 
 C_DEPS += \
 ./clocks.d \
@@ -26,7 +27,8 @@ C_DEPS += \
 ./main.d \
 ./ports.d \
 ./stateMachine.d \
-./system.d 
+./system.d \
+./wheels.d 
 
 OBJS += \
 ./clocks.obj \
@@ -36,7 +38,8 @@ OBJS += \
 ./main.obj \
 ./ports.obj \
 ./stateMachine.obj \
-./system.obj 
+./system.obj \
+./wheels.obj 
 
 OBJS__QUOTED += \
 "clocks.obj" \
@@ -46,7 +49,8 @@ OBJS__QUOTED += \
 "main.obj" \
 "ports.obj" \
 "stateMachine.obj" \
-"system.obj" 
+"system.obj" \
+"wheels.obj" 
 
 C_DEPS__QUOTED += \
 "clocks.d" \
@@ -56,7 +60,8 @@ C_DEPS__QUOTED += \
 "main.d" \
 "ports.d" \
 "stateMachine.d" \
-"system.d" 
+"system.d" \
+"wheels.d" 
 
 C_SRCS__QUOTED += \
 "../clocks.c" \
@@ -66,6 +71,7 @@ C_SRCS__QUOTED += \
 "../main.c" \
 "../ports.c" \
 "../stateMachine.c" \
-"../system.c" 
+"../system.c" \
+"../wheels.c" 
 
 
