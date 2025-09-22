@@ -14,8 +14,10 @@ C_SRCS += \
 ../init.c \
 ../led.c \
 ../main.c \
+../motors.c \
 ../ports.c \
 ../stateMachine.c \
+../switch.c \
 ../system.c \
 ../wheels.c 
 
@@ -25,8 +27,10 @@ C_DEPS += \
 ./init.d \
 ./led.d \
 ./main.d \
+./motors.d \
 ./ports.d \
 ./stateMachine.d \
+./switch.d \
 ./system.d \
 ./wheels.d 
 
@@ -36,8 +40,10 @@ OBJS += \
 ./init.obj \
 ./led.obj \
 ./main.obj \
+./motors.obj \
 ./ports.obj \
 ./stateMachine.obj \
+./switch.obj \
 ./system.obj \
 ./wheels.obj 
 
@@ -47,8 +53,10 @@ OBJS__QUOTED += \
 "init.obj" \
 "led.obj" \
 "main.obj" \
+"motors.obj" \
 "ports.obj" \
 "stateMachine.obj" \
+"switch.obj" \
 "system.obj" \
 "wheels.obj" 
 
@@ -58,8 +66,10 @@ C_DEPS__QUOTED += \
 "init.d" \
 "led.d" \
 "main.d" \
+"motors.d" \
 "ports.d" \
 "stateMachine.d" \
+"switch.d" \
 "system.d" \
 "wheels.d" 
 
@@ -69,8 +79,10 @@ C_SRCS__QUOTED += \
 "../init.c" \
 "../led.c" \
 "../main.c" \
+"../motors.c" \
 "../ports.c" \
 "../stateMachine.c" \
+"../switch.c" \
 "../system.c" \
 "../wheels.c" 
 

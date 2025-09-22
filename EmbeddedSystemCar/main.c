@@ -26,6 +26,14 @@ void Carlson_StateMachine(void);
 
 void forward(void);
 void stop(void);
+void motorStop(void);
+void Move_Shape(void);
+
+// Motor Movement Cases
+void wait_case(void);
+void start_case(void);
+void run_case(void);
+void end_case(void);
 // -----------------------------------------------------
 
 // Global Variables
@@ -38,18 +46,36 @@ extern volatile unsigned char update_display;
 extern volatile unsigned int update_display_count;
 extern volatile unsigned int Time_Sequence;
 extern volatile unsigned char one_time;
-
 unsigned int test_value;
 char chosen_direction;
 char change;
 
-// unsigned int wheel_move;
-// char forward;
+// New Global Variables for Button Switch & Movement ----------------
+unsigned int backlight_status;
+unsigned int Last_Time_Sequence;
+unsigned int cycle_time;
+unsigned int time_change;
+unsigned char dispEvent;
+unsigned char state;
+unsigned char event;
 
+unsigned int travel_distance;
+unsigned int right_count_time;
+unsigned int left_count_time;
+unsigned int wheel_count_time;
 
-// thingy
-char start_moving;
-unsigned int moving;
+unsigned int time_change;
+unsigned int delay_start;
+unsigned int cycle_time;
+unsigned int right_motor_count;
+unsigned int left_motor_count;
+unsigned int segment_count;
+
+unsigned int straight_step;
+unsigned int circle_step;
+unsigned int circle_step2;
+unsigned int triangle_step;
+unsigned int figure8_step;
 
 // -----------------------------------------------------
 
@@ -73,34 +99,32 @@ void main(void){
   display_changed = TRUE;
   // Display_Update(0,0,0,0);
 
-// thingy
-  // wheel_move = 0;
-  // forward = TRUE;
-  start_moving = '1';
-  moving = 0;
 
 //------------------------------------------------------------------------------
 // Begining of the "While" Operating System
 //------------------------------------------------------------------------------
-  while(ALWAYS) {                      // Can the Operating system run
-    Carlson_StateMachine();            // Run a Time Based State Machine
-    Switches_Process();                // Check for switch state change
-    Display_Process();                 // Update Display
-    P3OUT ^= TEST_PROBE;               // Change State of TEST_PROBE OFF
+    backlight_status = 0;
+    dispEvent = NONE;
+    state = WAIT;
+    motorStop();
+    event = NONE;
+    straight_step = 0;
 
-    if(Time_Sequence > 250){
-         Time_Sequence = 0;
-         start_moving = 0;
-         stop();
+    while(ALWAYS) {                      
+        Carlson_StateMachine();            // Run a Time Based State Machine
+        Display_Process();                 // Update Display
+        P3OUT ^= TEST_PROBE;               // Change State of TEST_PROBE OFF
+        if(Last_Time_Sequence != Time_Sequence){
+            Last_Time_Sequence = Time_Sequence;
+            cycle_time++;
+            time_change = 1;
+        }
+
+        Switch1_Process();
+        Switch2_Process();
+
+        Move_Shape();
     }
-    if(start_moving == '1'){
-         start_moving = '0';
-         moving = moving + 1;
-         forward();
-    }
-
-
-  }
 //------------------------------------------------------------------------------
 
 }
