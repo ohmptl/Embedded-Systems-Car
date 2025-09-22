@@ -18,3 +18,4 @@ dvt/*
 RemoteSystemsTempFiles
 RemoteSystemsTempFiles/*
 .theia
+.theia-workspace
