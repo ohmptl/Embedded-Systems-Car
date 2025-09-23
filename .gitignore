@@ -1,7 +1,5 @@
-**/Debug
-**/Release
-*/Debug/
-*/Release/
+**/Debug/
+**/Release/
 **/.xdchelp
 **/.config
 */.config/
