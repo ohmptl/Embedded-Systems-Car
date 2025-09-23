@@ -12,7 +12,7 @@ The goal is to design and implement an **autonomous car** using the MSP430 micro
 - Modular code structure for easier debugging and extensions  
 
 ## Hardware Used  
-- **MSP430FR6989 LaunchPad**  
+- **MSP430FR2355 LaunchPad**  
 - Motor driver and DC motors  
 - Pushbutton switches (for mode selection)  
 - Onboard LCD display  
