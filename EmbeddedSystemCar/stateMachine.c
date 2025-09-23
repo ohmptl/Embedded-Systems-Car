@@ -11,6 +11,7 @@
 
 #include  "msp430.h"
 #include  "ports.h"
+#include "functions.h"
 
 extern volatile unsigned char one_time;
 extern volatile unsigned int Time_Sequence;

@@ -24,16 +24,6 @@ void Display_Process(void);
 void Init_LEDs(void);
 void Carlson_StateMachine(void);
 
-void forward(void);
-void stop(void);
-void motorStop(void);
-void Move_Shape(void);
-
-// Motor Movement Cases
-void wait_case(void);
-void start_case(void);
-void run_case(void);
-void end_case(void);
 // -----------------------------------------------------
 
 // Global Variables
