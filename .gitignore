@@ -17,3 +17,4 @@ RemoteSystemsTempFiles
 RemoteSystemsTempFiles/*
 .theia
 Workspace.theia-workspace
+compile_commands.json
