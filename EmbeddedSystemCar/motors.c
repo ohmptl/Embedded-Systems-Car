@@ -46,35 +46,50 @@ extern char display_line[4][11];
 
 // FORWARD Commands
 void motorsForward(void){
-    //  Select and Turn Off Backlight
-    //    backlightControl(0);
-
     //  Turn ON Motors
-    P6SEL0 &= ~R_FORWARD;
-    P6SEL1 &= ~R_FORWARD;
     P6OUT  |=  R_FORWARD;
-    P6DIR  |=  R_FORWARD;
-
-    P6SEL0 &= ~L_FORWARD;
-    P6SEL1 &= ~L_FORWARD;
     P6OUT  |=  L_FORWARD;
-    P6DIR  |=  L_FORWARD;
+
 }
 
 // STOP Commands
 void motorStop(void){
     //  Turn OFF Motors
-    P6SEL0 &= ~R_FORWARD;
-    P6SEL1 &= ~R_FORWARD;
     P6OUT  &= ~R_FORWARD;
-    P6DIR  &= ~R_FORWARD;
-
-    P6SEL0 &= ~L_FORWARD;
-    P6SEL1 &= ~L_FORWARD;
     P6OUT  &= ~L_FORWARD;
-    P6DIR  &= ~L_FORWARD;
+
 }
 
+void move(int distance_cm, int turn){
+    if(turn > 50)  turn = 50;
+    if(turn < -50) turn = -50;
+
+    // Convert distance into internal "segments"
+    travel_distance = distance_cm * 0.3;
+
+    // Base motor "on-times"
+    wheel_count_time = 10;              // cycle length
+
+    // Calculate scaling from turn ratio
+    float left_scale, right_scale;
+    if(turn == 0){
+        left_scale = 1;
+        right_scale = 1;
+    } else if(turn < 0){
+        // Negative turn -> bias left motor
+        left_scale  = 1.0f;
+        right_scale = 1.0f - ((float)(-turn) / 50.0f);  
+    } else {
+        // Positive turn -> bias right motor
+        right_scale = 1.0f;
+        left_scale  = 1.0f - ((float)(turn) / 50.0f);
+    }
+
+    // Apply motor calibration AND turn scaling
+    right_count_time = (unsigned int)(right_scale * 10);
+    left_count_time  = (unsigned int)(left_scale  * 5);
+
+}
 
 
 
@@ -92,23 +107,24 @@ void Move_Shape(void){
         // Run actual code to make Shape
         switch(event){
         case STRAIGHT:
-            travel_distance = 10;
-            right_count_time = 10;
-            left_count_time = 9;
-            wheel_count_time = 10;
+            // travel_distance = 20;
+            // right_count_time = 10;
+            // left_count_time = 6;
+            // wheel_count_time = 10;
+            move(20, 0);
             run_case();
             break;
         case CIRCLE:
-            travel_distance = 190; // 85 Best so Far, Little Under //175
+            travel_distance = 160; // 85 Best so Far, Little Under //175
             right_count_time = 1;
-            left_count_time = 10;
+            left_count_time = 9;
             wheel_count_time = 10;
             run_case();
             break;
         case TRIANGLE:
             travel_distance = 10;
             right_count_time = 10;
-            left_count_time = 10;
+            left_count_time = 6;
             wheel_count_time = 10;
             run_case();
             break;
