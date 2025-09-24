@@ -47,8 +47,8 @@ extern char display_line[4][11];
 // FORWARD Commands
 void motorsForward(void){
     //  Turn ON Motors
-    P6OUT  |=  R_FORWARD;
-    P6OUT  |=  L_FORWARD;
+    if(right_count_time > 0) P6OUT  |=  R_FORWARD;
+    if(left_count_time > 0) P6OUT  |=  L_FORWARD;
 
 }
 
@@ -60,12 +60,12 @@ void motorStop(void){
 
 }
 
-void move(int distance_cm, int turn){
+void move(int distance, int turn){
     if(turn > 50)  turn = 50;
     if(turn < -50) turn = -50;
-
+    
     // Convert distance into internal "segments"
-    travel_distance = distance_cm * 0.3;
+    travel_distance = (unsigned int)distance;
 
     // Base motor "on-times"
     wheel_count_time = 10;              // cycle length
@@ -73,21 +73,21 @@ void move(int distance_cm, int turn){
     // Calculate scaling from turn ratio
     float left_scale, right_scale;
     if(turn == 0){
-        left_scale = 1;
-        right_scale = 1;
+        left_scale = 1.0f;
+        right_scale = 1.0f;
     } else if(turn < 0){
         // Negative turn -> bias left motor
-        left_scale  = 1.0f;
-        right_scale = 1.0f - ((float)(-turn) / 50.0f);  
+        right_scale  = 1.0f;
+        left_scale = 1.0f - ((float)(-turn) / 50.0f);  
     } else {
         // Positive turn -> bias right motor
-        right_scale = 1.0f;
-        left_scale  = 1.0f - ((float)(turn) / 50.0f);
+        left_scale = 1.0f;
+        right_scale  = 1.0f - ((float)(turn) / 50.0f);
     }
 
     // Apply motor calibration AND turn scaling
-    right_count_time = (unsigned int)(right_scale * 10);
-    left_count_time  = (unsigned int)(left_scale  * 5);
+    right_count_time = (unsigned int)(right_scale * 10.0 + 0.5f);
+    left_count_time  = (unsigned int)(left_scale  * 10.0 + 0.5f);
 
 }
 
@@ -111,42 +111,47 @@ void Move_Shape(void){
             // right_count_time = 10;
             // left_count_time = 6;
             // wheel_count_time = 10;
-            move(20, 0);
+            move(180, 0);
             run_case();
             break;
         case CIRCLE:
-            travel_distance = 160; // 85 Best so Far, Little Under //175
-            right_count_time = 1;
-            left_count_time = 9;
-            wheel_count_time = 10;
+            // travel_distance = 160; // 85 Best so Far, Little Under //175
+            // right_count_time = 1;
+            // left_count_time = 9;
+            // wheel_count_time = 10;
+            move(520, 40);
             run_case();
             break;
         case TRIANGLE:
-            travel_distance = 10;
-            right_count_time = 10;
-            left_count_time = 6;
-            wheel_count_time = 10;
+            // travel_distance = 10;
+            // right_count_time = 10;
+            // left_count_time = 6;
+            // wheel_count_time = 10;
+            move(20, 0);
             run_case();
             break;
         case TRIANGLE_CURVE:
-            travel_distance = 15;
-            right_count_time = 0;
-            left_count_time = 10;
-            wheel_count_time = 10;
+            // travel_distance = 15;
+            // right_count_time = 0;
+            // left_count_time = 10;
+            // wheel_count_time = 10;
+            move(10, 50);
             run_case();
             break; // NEW??
         case FIGURE8C1:
-            travel_distance = 105; // 75 Best so Far, Little Under
-            right_count_time = 10;
-            left_count_time = 0;
-            wheel_count_time = 10;
+            // travel_distance = 105; // 75 Best so Far, Little Under
+            // right_count_time = 10;
+            // left_count_time = 0;
+            // wheel_count_time = 10;
+            move(80, 45);
             run_case();
             break;
         case FIGURE8C2:
-            travel_distance = 120; // 75 Best so Far, Little Under
-            right_count_time = 0;
-            left_count_time = 10;
-            wheel_count_time = 10;
+            // travel_distance = 120; // 75 Best so Far, Little Under
+            // right_count_time = 0;
+            // left_count_time = 10;
+            // wheel_count_time = 10;
+            move(80, -45);
             run_case();
             break;
         case NONE:
