@@ -147,5 +147,12 @@ void stop(void);
 void motorStop(void);
 void Move_Shape(void);
 
+// Shape-specific movement functions
+void run_straight(void);
+void run_circle(void);
+void run_triangle(void);
+void run_figure8(void);
+void move(int distance, int turn, int wheel_move);
+
 
 
