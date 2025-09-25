@@ -27,7 +27,7 @@ extern unsigned int wheel_count_time;
 
 extern unsigned int time_change;
 extern unsigned int delay_start;
-extern unsigned int cycle_time;
+extern unsigned int mytime;
 extern unsigned int right_motor_count;
 extern unsigned int left_motor_count;
 extern unsigned int segment_count;
@@ -122,7 +122,10 @@ void move(int distance, int turn, int wheel_count){
 
 }
 
-
+// travel_distance;
+// left_count_time;
+// right_count_time;
+// wheel_count_time;
 
 // Shape-specific movement functions
 void run_straight(void){
@@ -263,7 +266,7 @@ void start_case(void){
     straight_step = 0;
     circle_step = 0;
     
-    cycle_time = 0;
+    mytime = 0;
     right_motor_count = 0;
     left_motor_count = 0;
     segment_count = 0;
@@ -302,8 +305,8 @@ void run_case(void){
             if(left_motor_count++ >= left_count_time){
                 P6OUT &= ~L_FORWARD;
             }
-            if(cycle_time >= wheel_count_time){
-                cycle_time = 0;
+            if(mytime >= wheel_count_time){
+                mytime = 0;
                 right_motor_count = 0;
                 left_motor_count = 0;
                 segment_count++;

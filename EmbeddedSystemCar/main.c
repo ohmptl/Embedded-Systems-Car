@@ -41,9 +41,13 @@ char chosen_direction;
 char change;
 
 // New Global Variables for Button Switch & Movement ----------------
+
+unsigned int old_Time_Sequence;
+unsigned int mytime;
+unsigned int right_motor_count;
+unsigned int left_motor_count;
+
 unsigned int backlight_status;
-unsigned int Last_Time_Sequence;
-unsigned int cycle_time;
 unsigned int time_change;
 unsigned char dispEvent;
 unsigned char state;
@@ -54,11 +58,7 @@ unsigned int right_count_time;
 unsigned int left_count_time;
 unsigned int wheel_count_time;
 
-unsigned int time_change;
 unsigned int delay_start;
-unsigned int cycle_time;
-unsigned int right_motor_count;
-unsigned int left_motor_count;
 unsigned int segment_count;
 
 unsigned int straight_step;
@@ -104,16 +104,19 @@ void main(void){
         Carlson_StateMachine();            // Run a Time Based State Machine
         Display_Process();                 // Update Display
         P3OUT ^= TEST_PROBE;               // Change State of TEST_PROBE OFF
-        if(Last_Time_Sequence != Time_Sequence){
-            Last_Time_Sequence = Time_Sequence;
-            cycle_time++;
+
+
+        if(Time_Sequence != old_Time_Sequence){
+            mytime++;
+            old_Time_Sequence = Time_Sequence;
+            wheel_period++;
             time_change = 1;
         }
 
-        Switch1_Process();
-        Switch2_Process();
+        // Switch1_Process();
+        // Switch2_Process();
 
-        Move_Shape();
+        // Move_Shape();
     }
 //------------------------------------------------------------------------------
 
