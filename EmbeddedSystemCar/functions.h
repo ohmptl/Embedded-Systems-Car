@@ -29,7 +29,7 @@ void Init_Clocks(void);
 // LED Configurations
 void Init_LEDs(void);
 void IR_LED_control(char selection);
-void Backlite_control(char selection);
+void backlight_update(void);
 
   // LCD
 void Display_Process(void);
@@ -132,8 +132,6 @@ void measure_delay(void);
 void out_control_words(void);
 
 
-
-
 // ADDED CODE
 
 // Motor Movement Cases
@@ -146,13 +144,6 @@ void forward(void);
 void stop(void);
 void motorStop(void);
 void Move_Shape(void);
-
-// Shape-specific movement functions
-void run_straight(void);
-void run_circle(void);
-void run_triangle(void);
-void run_figure8(void);
-void move(int distance, int turn, int wheel_move);
 
 
 

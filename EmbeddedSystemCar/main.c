@@ -30,7 +30,7 @@ void Carlson_StateMachine(void);
 volatile char slow_input_down;
 extern char display_line[4][11];
 extern char *display[4];
-unsigned char display_mode;
+unsigned char display_mode; //unused
 extern volatile unsigned char display_changed;
 extern volatile unsigned char update_display;
 extern volatile unsigned int update_display_count;
@@ -44,12 +44,13 @@ char change;
 
 unsigned int old_Time_Sequence;
 unsigned int mytime;
+
 unsigned int right_motor_count;
 unsigned int left_motor_count;
 
-unsigned int backlight_status;
+unsigned int backlight;             // backlight on off flag
 unsigned int time_change;
-unsigned char dispEvent;
+unsigned char dispEvent;            // switch.c track display state
 unsigned char state;
 unsigned char event;
 
@@ -67,10 +68,8 @@ unsigned int circle_step2;
 unsigned int triangle_step;
 unsigned int figure8_step;
 
-// -----------------------------------------------------
-
-
 //------------------------------------------------------------------------------
+
 void main(void){
   // WDTCTL = WDTPW | WDTHOLD;   // stop watchdog timer
   PM5CTL0 &= ~LOCKLPM5;
@@ -87,36 +86,33 @@ void main(void){
   strcpy(display_line[2], "  ECE306  ");
   strcpy(display_line[3], "  GP I/O  ");
   display_changed = TRUE;
-  // Display_Update(0,0,0,0);
 
 
 //------------------------------------------------------------------------------
 // Begining of the "While" Operating System
 //------------------------------------------------------------------------------
-    backlight_status = 0;
-    dispEvent = NONE;
-    state = WAIT;
+    backlight = OFF;
     motorStop();
-    event = NONE;
-    straight_step = 0;
+    // dispEvent = NONE;
+    // state = WAIT;
+    // event = NONE;
 
     while(ALWAYS) {                      
-        Carlson_StateMachine();            // Run a Time Based State Machine
-        Display_Process();                 // Update Display
-        P3OUT ^= TEST_PROBE;               // Change State of TEST_PROBE OFF
-
-
+        Carlson_StateMachine();         // Run a Time Based State Machine
+        Display_Process();              // Update Display based on display_changed
+        backlight_update();             // Turn ON Backlight
+        P3OUT ^= TEST_PROBE;            // Change State of TEST_PROBE OFF
         if(Time_Sequence != old_Time_Sequence){
             mytime++;
             old_Time_Sequence = Time_Sequence;
-            wheel_period++;
+            //wheel_period++;
             time_change = 1;
         }
 
-        // Switch1_Process();
-        // Switch2_Process();
+        Switch1_Process();
+        Switch2_Process();
+        
 
-        // Move_Shape();
     }
 //------------------------------------------------------------------------------
 

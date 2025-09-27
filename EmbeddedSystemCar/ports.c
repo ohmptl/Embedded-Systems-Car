@@ -15,6 +15,8 @@
 #include  "ports.h"
 #include  "macros.h"
 
+int port3_4;
+
 void Init_Ports(void){
     Init_Port1();
     Init_Port2();
@@ -137,10 +139,28 @@ void Init_Port3(void){
     P3DIR  &= ~OA2P;
 
 
-    P3SEL0 &= ~SMCLK_OUT;
-    P3SEL1 &= ~SMCLK_OUT;
-    P3DIR  &= ~SMCLK_OUT;
+    switch(port3_4){
+    case USE_GPIO:
+        P3SEL0 &= ~SMCLK_OUT;
+        P3SEL1 &= ~SMCLK_OUT;
+        P3OUT  &= ~SMCLK_OUT;
+        P3DIR  |= SMCLK_OUT;
+        break;
 
+    case USE_SMCLK:
+        P3SEL0 |= SMCLK_OUT;
+        P3SEL1 &= ~SMCLK_OUT;
+        P3OUT  &= ~SMCLK_OUT;
+        P3DIR  |= SMCLK_OUT;
+        break;
+
+    default:
+        P3SEL0 &= ~SMCLK_OUT;
+        P3SEL1 &= ~SMCLK_OUT;
+        P3OUT  &= ~SMCLK_OUT;
+        P3DIR  |= SMCLK_OUT;
+        break;
+    }
 
     P3SEL0 &= ~DAC_CNTL_3;
     P3SEL1 &= ~DAC_CNTL_3;

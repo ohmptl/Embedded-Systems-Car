@@ -17,6 +17,8 @@
 #define GRN_LED              (0x40) // GREEN LED 1
 #define TEST_PROBE           (0x01) // 0 TEST PROBE
 #define TRUE                 (0x01) //
+#define ON                   (0x01) //
+#define OFF                  (0x00) //
 
 
 // STATES ======================================================================
@@ -38,5 +40,9 @@
 #define DEBOUNCE_TIME          (12)
 #define DEBOUNCE_RESTART       (0)
 #define WAITING2START          (500)
+
+// Homework 5
+#define USE_GPIO (0x00)
+#define USE_SMCLK (0x01)
 
 #endif /* MACROS_H_ */
