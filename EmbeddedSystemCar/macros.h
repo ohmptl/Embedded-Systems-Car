@@ -22,14 +22,15 @@
 
 
 // STATES ======================================================================
-#define NONE                  ('N')
-#define STRAIGHT              ('L')
-#define CIRCLE                ('C')
-#define TRIANGLE              ('T')
-#define FIGURE8C1             ('F')
 #define WAIT                  ('W')
-#define START                 ('S')
 #define RUN                   ('R')
+#define START                 ('S')
+#define NONE                  ('N')
+#define GOFORWARD1            ('F')
+#define GOREVERSE             ('R')
+#define GOFORWARD2            ('Q')
+#define GOCW                  ('C')
+#define GOCCW                 ('W')
 #define END                   ('E')
 
 // Switches
@@ -40,6 +41,12 @@
 #define DEBOUNCE_TIME          (12)
 #define DEBOUNCE_RESTART       (0)
 #define WAITING2START          (500)
+
+// Directions
+#define CW                     (2)
+#define CCW                    (3)
+
+
 
 // Homework 5
 #define USE_GPIO (0x00)

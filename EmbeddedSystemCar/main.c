@@ -41,9 +41,10 @@ char chosen_direction;
 char change;
 
 // New Global Variables for Button Switch & Movement ----------------
-
+unsigned int Switch1_Pressed;
 unsigned int old_Time_Sequence;
 unsigned int mytime;
+unsigned int dir;
 
 unsigned int right_motor_count;
 unsigned int left_motor_count;
@@ -67,6 +68,8 @@ unsigned int circle_step;
 unsigned int circle_step2;
 unsigned int triangle_step;
 unsigned int figure8_step;
+unsigned int cycle_time;
+unsigned int secTime;
 
 //------------------------------------------------------------------------------
 
@@ -93,9 +96,8 @@ void main(void){
 //------------------------------------------------------------------------------
     backlight = OFF;
     motorStop();
-    // dispEvent = NONE;
-    // state = WAIT;
-    // event = NONE;
+    state = NONE;
+    event = NONE;
 
     while(ALWAYS) {                      
         Carlson_StateMachine();         // Run a Time Based State Machine
@@ -110,7 +112,8 @@ void main(void){
         }
 
         Switch1_Process();
-        Switch2_Process();
+        Wheels_Process();
+        // safetyCheck();
         
 
     }
