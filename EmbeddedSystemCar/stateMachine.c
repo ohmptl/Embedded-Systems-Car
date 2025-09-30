@@ -23,7 +23,7 @@ void Carlson_StateMachine(void){
       case 250:                        //
         if(one_time){
           Init_LEDs();
-          lcd_BIG_mid();
+          // lcd_BIG_mid();
           display_changed = 1;
           one_time = 0;
         }
@@ -46,7 +46,7 @@ void Carlson_StateMachine(void){
       case 100:                         //
         if(one_time){
 //          lcd_4line();
-          lcd_BIG_bot();
+          // lcd_BIG_bot();
           P6OUT |= GRN_LED;            // Change State of LED 5
           display_changed = 1;
           one_time = 0;
