@@ -46,12 +46,12 @@ extern unsigned int secTime;
 
 // Switch Functions ------------------------------------------------------------
 
-// void Switches_Process(void){    // Error with alr being defined in switch.obj
+void Switches_Process(void){    // Error with alr being defined in switch.obj
 
-//     Switch1_Process();
-//     Switch2_Process();
+    Switch1_Process();
+    Switch2_Process();
 
-// }
+}
 
 void Switch1_Process(void){
 // Switch Setup-----------------------------------------------------------------
