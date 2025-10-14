@@ -100,6 +100,8 @@ void main(void){
     motorStop();
     state = NONE;
     event = NONE;
+    enable_switches();
+    activateSM = 0;
 
     while(ALWAYS) {                      
         Carlson_StateMachine();         // Run a Time Based State Machine
