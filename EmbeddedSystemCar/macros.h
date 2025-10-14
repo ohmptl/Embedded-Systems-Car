@@ -38,7 +38,7 @@
 #define RELEASED               (1)
 #define NOT_OKAY               (0)
 #define OKAY                   (1)
-#define DEBOUNCE_TIME          (12)
+
 #define DEBOUNCE_RESTART       (0)
 #define WAITING2START          (500)
 

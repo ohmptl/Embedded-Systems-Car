@@ -15,6 +15,7 @@
 #include  "LCD.h"
 #include  "macros.h"
 #include  "ports.h"
+#include "switch.h"
 // -----------------------------------------------------
 
 // Function Prototypes
@@ -70,6 +71,7 @@ unsigned int triangle_step;
 unsigned int figure8_step;
 unsigned int cycle_time;
 unsigned int secTime;
+int activateSM; // flag set by switch ISRs to trigger actions
 
 //------------------------------------------------------------------------------
 
@@ -111,20 +113,9 @@ void main(void){
             time_change = 1;
         }
 
-        Switch1_Process();
-        Wheels_Process();
-        // safetyCheck();
-        
+        debounce();
 
     }
 //------------------------------------------------------------------------------
 
 }
-
-
-
-
-
-
-
-
