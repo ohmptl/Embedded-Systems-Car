@@ -43,6 +43,11 @@ extern volatile unsigned int debounce_count2;
 extern unsigned int backlight;
 extern unsigned int secTime;
 
+// Provide storage for debounce status flags referenced by timer ISR
+// Initialize to OFF so backlight can toggle when idle
+char debounce_Status_SW1 = OFF;
+char debounce_Status_SW2 = OFF;
+
 
 // Switch Functions ------------------------------------------------------------
 
