@@ -15,7 +15,6 @@
 #include  "LCD.h"
 #include  "macros.h"
 #include  "ports.h"
-#include "switch.h"
 // -----------------------------------------------------
 
 // Function Prototypes
@@ -71,7 +70,6 @@ unsigned int triangle_step;
 unsigned int figure8_step;
 unsigned int cycle_time;
 unsigned int secTime;
-int activateSM; // flag set by switch ISRs to trigger actions
 
 //------------------------------------------------------------------------------
 
@@ -100,8 +98,6 @@ void main(void){
     motorStop();
     state = NONE;
     event = NONE;
-    enable_switches();
-    activateSM = 0;
 
     while(ALWAYS) {                      
         Carlson_StateMachine();         // Run a Time Based State Machine
@@ -115,9 +111,20 @@ void main(void){
             time_change = 1;
         }
 
-        debounce();
+        Switch1_Process();
+        Wheels_Process();
+        // safetyCheck();
+        
 
     }
 //------------------------------------------------------------------------------
 
 }
+
+
+
+
+
+
+
+

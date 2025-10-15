@@ -38,7 +38,7 @@
 #define RELEASED               (1)
 #define NOT_OKAY               (0)
 #define OKAY                   (1)
-
+#define DEBOUNCE_TIME          (12)
 #define DEBOUNCE_RESTART       (0)
 #define WAITING2START          (500)
 
@@ -53,16 +53,3 @@
 #define USE_SMCLK (0x01)
 
 #endif /* MACROS_H_ */
-
-// TIMERS
-
-#define TB0CCR0_INTERVAL (25000) 
-#define TB0CCR1_INTERVAL (2500) 
-#define TB0CCR2_INTERVAL (2500)
-
-#define TIMER_B0_0_VECTOR (TIMER0_B0_VECTOR)
-#define TIMER_B0_1_OVFL_VECTOR (TIMER0_B1_VECTOR)
-
-#define HALF_SEC (500)
-#define COUNTER_RESET (0)
-
