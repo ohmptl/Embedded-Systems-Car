@@ -1,17 +1,16 @@
 //------------------------------------------------------------------------------
-//
-//  Description: This file contains the initial condition function
-//
-//  Ohm Patel
-//  Sept 2025
-//  Built with Code Composer Version: CCS20.3.0
-//
+//  Name:           init.c
+//  Description:    Init file
+//  Author:         Ohm Patel
+//  Date:           Oct 2025
+//  IDE:            CCS20.3.0
 //------------------------------------------------------------------------------
 
 #include "ports.h"
 #include "msp430.h"
 #include "macros.h"
-#include "functions.h"
+#include "init.h"
+#include "system.h"
 
 extern char display_line[4][11];
 extern char *display[4];

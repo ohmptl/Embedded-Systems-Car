@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "adc.h": "c",
+        "ports.h": "c",
+        "statemachine.h": "c"
+    }
+}

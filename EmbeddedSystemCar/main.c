@@ -11,20 +11,12 @@
 //------------------------------------------------------------------------------
 #include  "msp430.h"
 #include  <string.h>
-#include  "functions.h"
 #include  "LCD.h"
 #include  "macros.h"
 #include  "ports.h"
-// -----------------------------------------------------
-
-// Function Prototypes
-void main(void);
-void Init_Conditions(void);
-void Display_Process(void);
-void Init_LEDs(void);
-void Carlson_StateMachine(void);
-
-// -----------------------------------------------------
+#include "functions.h"
+#include  "states.h"
+#include  "motors.h"
 
 // Global Variables
 volatile char slow_input_down;
@@ -36,6 +28,10 @@ extern volatile unsigned char update_display;
 extern volatile unsigned int update_display_count;
 extern volatile unsigned int Time_Sequence;
 extern volatile unsigned char one_time;
+extern unsigned int IR;
+extern unsigned int IRChange;
+extern volatile unsigned int ADCLeft;
+extern volatile unsigned int ADCRight;
 unsigned int test_value;
 char chosen_direction;
 char change;
@@ -62,69 +58,174 @@ unsigned int wheel_count_time;
 
 unsigned int delay_start;
 unsigned int segment_count;
-
-unsigned int straight_step;
-unsigned int circle_step;
-unsigned int circle_step2;
-unsigned int triangle_step;
-unsigned int figure8_step;
 unsigned int cycle_time;
 unsigned int secTime;
 
 //------------------------------------------------------------------------------
 
 void main(void){
-  // WDTCTL = WDTPW | WDTHOLD;   // stop watchdog timer
-  PM5CTL0 &= ~LOCKLPM5;
+    // WDTCTL = WDTPW | WDTHOLD;   // stop watchdog timer
+    PM5CTL0 &= ~LOCKLPM5;
 
-  Init_Ports();                        // Initialize Ports
-  Init_Clocks();                       // Initialize Clock System
-  Init_Conditions();                   // Initialize Variables and Initial Conditions
-  Init_Timers();                       // Initialize Timers
-  Init_LCD();                          // Initialize LCD
-    // P2OUT &= ~RESET_LCD;
+    Init_Ports();                        // Initialize Ports
+    Init_Clocks();                       // Initialize Clock System
+    Init_Conditions();                   // Initialize Variables and Initial Conditions
+    Init_Timers();                       // Initialize Timers
+    Init_LCD();                          // Initialize LCD
+    Init_ADC();                          // Initialize ADC
 
-  // After all peripherals are configured, enable switch interrupts
-  enable_switches();
-
-  strcpy(display_line[0], "   NCSU   ");
-  strcpy(display_line[1], " WOLFPACK ");
-  strcpy(display_line[2], "  ECE306  ");
-  strcpy(display_line[3], "  GP I/O  ");
-  display_changed = TRUE;
+    // Startup Display
+    strcpy(display_line[0], "   NCSU   ");
+    strcpy(display_line[1], " WOLFPACK ");
+    strcpy(display_line[2], "  ECE306  ");
+    strcpy(display_line[3], "  GP I/O  ");
+    display_changed = TRUE;
 
 
 //------------------------------------------------------------------------------
 // Begining of the "While" Operating System
 //------------------------------------------------------------------------------
     backlight = OFF;
+    IR = OFF;
+    state = IDLE;
     motorStop();
-    state = NONE;
-    event = NONE;
 
     while(ALWAYS) {                      
-        Carlson_StateMachine();         // Run a Time Based State Machine
-        Display_Process();              // Update Display based on display_changed
-        // backlight_update();             // Turn ON Backlight do not need this for HW6
-        P3OUT ^= TEST_PROBE;            // Change State of TEST_PROBE OFF
-        if(Time_Sequence != old_Time_Sequence){
-            mytime++;
-            old_Time_Sequence = Time_Sequence;
-            //wheel_period++;
-            time_change = 1;
-        }
+        update();
 
-        
+        Project6();
 
     }
 //------------------------------------------------------------------------------
 
 }
 
+void update(void){
+    Display_Process();
+    Carlson_StateMachine();
+    backlight_update();
+    IR_Update();
+    P3OUT ^= TEST_PROBE;            // Change State of TEST_PROBE OFF
+}
 
 
+void Project6(void){
+    switch (state){
+        case IDLE:
+            if(!IRChange){
+                strcpy(display_line[0], "   IDLE   ");
+            }
 
+            PWM1_BOTH_OFF(); // motorsOFF();
+            display_changed = TRUE;
+            update_display = TRUE;
+            //        ADC_Update = TRUE; = TRUE;
+            // WAIT state called when SW1 is Pressed
+            break;
 
+        case WAIT:
+            strcpy(display_line[0], "   WAIT   ");
+            display_changed = TRUE;
+            update_display = TRUE;
+            //        ADC_Update = TRUE; = TRUE;
+            switch (Time_Sequence)
+            {   // Time_Sequence-State_Sequence
+            case 10: // Wait for 1 Second
+                PWM1_BOTH_OFF(); // motorsOFF();
+                state = FWD;
+                break;
+            default:
+                break;
+            }
+            break;
 
+        case FWD:
+            PWM1_BOTH_FWD(); // LRFwdON();
+            strcpy(display_line[0], "   FWD    ");
+            display_changed = TRUE;
+            update_display = TRUE;
+            //        ADC_Update = TRUE; = TRUE;
+            if ((ADCLeft >= IR_MAGIC_NUM) && (ADCRight >= IR_MAGIC_NUM)){
+                state = BLACKLINE; // Black Line Detected
+                PWM1_BOTH_OFF(); // motorsOFF();
+            }
+            break;
+
+        case BLACKLINE:
+            PWM1_BOTH_OFF(); // motorsOFF();
+            strcpy(display_line[0], " BLACKLINE");
+            display_changed = TRUE;
+            update_display = TRUE;
+            //        ADC_Update = TRUE; = TRUE;
+            Time_Sequence = 0; //        State_Sequence = Time_Sequence;
+            state = WAIT2;
+            break;
+
+        case WAIT2:
+            PWM1_BOTH_OFF(); // motorsOFF();
+            if(Time_Sequence < 30){
+                strcpy(display_line[0], "          ");
+                strcpy(display_line[1], "Black Line");
+                strcpy(display_line[2], " Detected ");
+                strcpy(display_line[3], "          ");
+            }
+            display_changed = TRUE;
+            update_display = TRUE;
+            switch (Time_Sequence){ // Time_Sequence-State_Sequence
+            case 30: // Wait for 3 Second
+                strcpy(display_line[0], "          ");
+                strcpy(display_line[1], "          ");
+                strcpy(display_line[2], "          ");
+                strcpy(display_line[3], "          ");
+                display_changed = TRUE;
+                update_display = TRUE;
+                PWM1_BOTH_FWD();
+                if ((ADCLeft < IR_MAGIC_NUM) && (ADCRight < IR_MAGIC_NUM)){
+                    Time_Sequence = 0;
+                    state = TURNL; // Black Line Detected
+                    PWM1_RIGHT_OFF(); // motorsOFF();
+                }
+                break;
+            default:
+                break;
+            }
+
+            break;
+
+        case TURNL:
+            PWM1_LEFT_FWD(); // LeftFwdON();
+            strcpy(display_line[0], " TURN LEFT");
+            display_changed = TRUE;
+            update_display = TRUE;
+            //        ADC_Update = TRUE; = TRUE;
+            if ((ADCLeft >= IR_MAGIC_NUM) && (ADCRight >= IR_MAGIC_NUM))
+            {
+                state = LINE1; // Black Line Detected
+                PWM1_BOTH_OFF(); // motorsOFF();
+                Time_Sequence = 0;
+            }
+            break;
+        case LINE1:
+            strcpy(display_line[0], "   LINE1  ");
+            display_changed = TRUE;
+            update_display = TRUE;
+            //        ADC_Update = TRUE; = TRUE;
+            if ((ADCLeft >= IR_MAGIC_NUM) && (ADCRight >= IR_MAGIC_NUM)
+                    && (Time_Sequence >= 10))
+            {
+                state = DONE; // Black Line Detected
+                Time_Sequence = 0; //  State_Sequence = Time_Sequence;
+                PWM1_BOTH_OFF(); // motorsOFF();
+            }
+        case DONE:
+            strcpy(display_line[0], "   DONE   ");
+            display_changed = TRUE;
+            update_display = TRUE;
+            break;
+
+        default:
+            break;
+    }
+}
 
 

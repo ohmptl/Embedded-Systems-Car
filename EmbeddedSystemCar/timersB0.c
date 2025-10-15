@@ -1,25 +1,20 @@
 //------------------------------------------------------------------------------
 //
-//  Description: Timer_B0 timebase and timer helper functions
-//
-//  Implements required timers for HW06 using TB0 in continuous mode:
-//   - CCR0: Backlight blink and display service every 200ms (2.5Hz blink)
-//   - CCR1: Debounce ticker for SW1 when enabled
-//   - CCR2: Debounce ticker for SW2 when enabled
-//  Replaces precompiled timersB0.obj.
+//  Description: This file contains the Timer_B0 Initialization and ISR
 //
 //  Ohm Patel
-//  Sept 2025
-//  Built with Code Composer Version: CCS12.x
+//  Oct 2025
+//  Built with Code Composer Version: CCS20.3.0
+//
 //------------------------------------------------------------------------------
 
 #include  "msp430.h"
 #include  <string.h>
-#include  "functions.h"
+#include  "timersB0.h"
 #include "ports.h"
 #include  "LCD.h"
 #include  "macros.h"
-#include  "ports.h"
+#include  "motors.h"
 
 //------------------------------------------------------------------------------
 // Public globals consumed across the project
@@ -72,21 +67,25 @@ void Init_Timers(void) {
 }
 
 void Init_Timer_B0(void) {
-  // Stop and configure Timer_B0 for continuous mode sourced from SMCLK
-  TB0CTL = TBSSEL__SMCLK | MC__STOP | TBCLR;   // SMCLK, stop, clear
-  TB0CTL |= ID__8;                             // Divide SMCLK by 8
-  TB0EX0  = TBIDEX_7;                          // Extra divide by 8 => 125kHz timer clock
+    TB0CTL = TBSSEL__SMCLK;     // SMCLK source
+    TB0CTL |= TBCLR;            // Resets TB0R, clock divider, count direction
+    TB0CTL |= MC__CONTINOUS;    // Continuous up
+    TB0CTL |= ID__8;            // Divide clock by 2
+    TB0EX0 = TBIDEX__8;         // Divide clock by an additional 8
 
-  // CCR0: 200ms backlight blink + display service
-  TB0CCTL0 = CCIE;                             // Enable CCR0 interrupt
-  TB0CCR0  = TB0R + (unsigned int)CCR0_DELTA_COUNTS;
+    TB0CCR0 = TB0CCR0_INTERVAL; // CCR0
+    TB0CCTL0 |= CCIE;           // CCR0 enable interrupt
 
-  // CCR1/CCR2: disabled until a debounce begins
-  TB0CCTL1 = 0;
-  TB0CCTL2 = 0;
+    // TB0CCR1 = TB0CCR1_INTERVAL; // CCR1
+    // TB0CCTL1 |= CCIE; // CCR1 enable interrupt
 
-  // Start timer in continuous mode
-  TB0CTL = (TB0CTL & ~(MC_3)) | MC__CONTINUOUS;
+    // TB0CCR2 = TB0CCR2_INTERVAL; // CCR2
+    // TB0CCTL2 |= CCIE; // CCR2 enable interrupt
+
+    TB0CTL &= ~TBIE;  // Disable Overflow Interrupt
+    TB0CTL &= ~TBIFG; // Clear Overflow Interrupt flag
+
+
 }
 
 void Init_Timer_B1(void) {
@@ -98,7 +97,35 @@ void Init_Timer_B2(void) {
 }
 
 void Init_Timer_B3(void) {
-  // Not used in this lab configuration; left as placeholder to satisfy linker
+    //-----------------------------------------------------------------------------
+    // SMCLK source, up count mode, PWM Right Side
+    // TB3.1 P6.0 LCD_BACKLITE
+    // TB3.2 P6.1 R_FORWARD
+    // TB3.3 P6.2 R_REVERSE
+    // TB3.4 P6.3 L_FORWARD
+    // TB3.5 P6.4 L_REVERSE
+    //-----------------------------------------------------------------------------
+    TB3CTL = TBSSEL__SMCLK; // SMCLK
+    TB3CTL |= MC__UP;       // Up Mode
+    TB3CTL |= TBCLR;        // Clear TAR
+
+    PWM_PERIOD = PWM1_WHEEL_PERIOD;         // PWM Period [Set this to 50005]
+
+    TB3CCTL1 = OUTMOD_7;               // CCR1 reset/set
+    LCD_BACKLITE_DIMING = PWM1_PERCENT_80;  // P6.0 Right Forward PWM duty cycle
+
+    TB3CCTL2 = OUTMOD_7;               // CCR2 reset/set
+    RIGHT_FORWARD_SPEED = PWM1_WHEEL_OFF;   // P6.1 Right Forward PWM duty cycle
+
+    TB3CCTL3 = OUTMOD_7;               // CCR3 reset/se
+    LEFT_FORWARD_SPEED = PWM1_WHEEL_OFF;    // P6.2 Right Forward PWM duty cycl
+
+    TB3CCTL4 = OUTMOD_7;               // CCR4 reset/set
+    RIGHT_REVERSE_SPEED = PWM1_WHEEL_OFF;   // P6.3 Left Forward PWM duty cycle
+
+    TB3CCTL5 = OUTMOD_7;               // CCR5 reset/set
+    LEFT_REVERSE_SPEED = PWM1_WHEEL_OFF;    // P6.4 Right Reverse PWM duty cycle
+    //-----------------------------------------------------------------------------
 }
 
 //------------------------------------------------------------------------------
@@ -136,17 +163,6 @@ void out_control_words(void) {
 // Timer_B0 Interrupts
 //------------------------------------------------------------------------------
 
-//------------------------------------------------------------------------------
-// ISR: TIMER0_B0_VECTOR (CCR0)
-// Source: TB0CCR0 match in continuous mode
-// Function: Every 200ms toggle LCD_BACKLITE and set update_display true.
-// Globals used/changed:
-//   - update_display (set true every 200ms)
-//   - update_display_count (optional counter)
-//   - P6OUT bit LCD_BACKLITE (toggle)
-// Behavior during debounce:
-//   - This interrupt is disabled when any debounce is active (TB0CCTL0 CCIE cleared)
-//------------------------------------------------------------------------------
 #pragma vector = TIMER0_B0_VECTOR
 __interrupt void Timer0_B0_ISR(void) {
   // Schedule next 200ms event
@@ -173,7 +189,7 @@ __interrupt void TIMER0_B1_ISR(void) {
         if (debounce_count1 >= DEBOUNCE_THRESHOLD_TICKS) {
           debounce_active1 = 0;
           TB0CCTL1 &= ~CCIE;           // disable CCR1 interrupt
-          P4IFG &= ~SW1;               // clear any lingering flag
+          P4IFG &= ~SW1;               // clear any flag
           P4IE  |= SW1;                // re-enable SW1 interrupt
         }
       } else {

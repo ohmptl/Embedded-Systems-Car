@@ -6,16 +6,14 @@
 //  Jan 2021
 //  Built with IAR Embedded Workbench Version: V7.12.1
 // ------------------------------------------------------------------------------
-#include  "functions.h"
 #include  "msp430.h"
 #include  "macros.h"
+#include  "clocks.h"
 
 // MACROS========================================================================
 #define MCLK_FREQ_MHZ           (8) // MCLK = 8MHz
 #define CLEAR_REGISTER     (0X0000)
 
-void Init_Clocks(void);
-void Software_Trim(void);
 
 void Init_Clocks(void){
 // -----------------------------------------------------------------------------

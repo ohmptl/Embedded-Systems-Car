@@ -1,3 +1,12 @@
+//------------------------------------------------------------------------------
+//  Name:           ports.h
+//  Description:    GPIO port pin definitions and related macros
+//  Author:         Ohm Patel
+//  Date:           Oct 2025
+//------------------------------------------------------------------------------
+
+#ifndef PORTS_H_
+#define PORTS_H_
 #define FALSE                  (0x00) //
 #define TRUE                   (0x01) //
 #define MOTOR                  (0x00) //
@@ -15,7 +24,15 @@
 #define FORWARD                (0x00) // FORWARD
 #define REVERSE                (0x01) // REVERSE
 
+// General pins/macros
+#define TEST_PROBE             (0x01) // 3.0 TEST PROBE (also used as general test)
 
+// Selections for port 3.4 (SMCLK_OUT)
+#define USE_GPIO               (0x00)
+#define USE_SMCLK              (0x01)
+
+
+// Port 1 Pins
 // Port 1 Pins
 #define RED_LED                (0x01) // 1.0 RED LED 0
 #define A1_SEEED               (0x02) // 1.1 A1_SEEED
@@ -63,6 +80,8 @@
 #define V_3_3                  (0x08) // 5.3 V_3_3
 #define IOT_BOOT_CPU           (0x10) // 5.4 IOT_BOOT_CPU
 
+#define PORTS_H_END_GUARD_PLACEHOLDER 0
+
 // Port 6 Pins
 #define L_FORWARD              (0x01) // 6.0 P6_0_PWM LCD_BACKLITE
 #define R_FORWARD              (0x02) // 6.1 P6_1_PWM
@@ -71,3 +90,5 @@
 #define LCD_BACKLITE           (0x10) // 6.4 P6_4_PWM
 #define P6_5                   (0x20) // 6.5
 #define GRN_LED                (0x40) // 6.6 GREEN LED
+
+#endif // PORTS_H_

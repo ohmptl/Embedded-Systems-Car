@@ -1,6 +1,8 @@
 //------------------------------------------------------------------------------
 // Macro Configurations for the LCD
 //------------------------------------------------------------------------------
+#ifndef LCD_H_
+#define LCD_H_
 // LCD
 void enable_display_update(void);
 void update_string(char *string_data, int string);
@@ -106,4 +108,6 @@ void outchar(char character);
 
 #define START_WR_INSTRUCTION  0x1f
 #define START_WR_DATA         0x5f
+
+#endif // LCD_H_
 

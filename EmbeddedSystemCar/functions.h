@@ -1,6 +1,6 @@
 //------------------------------------------------------------------------------
 //
-//  Description: This file contains the function prototypes
+//  Description: This file contains the function prototypes (central reference)
 //
 //  Ohm Patel
 //  Sept 2025
@@ -8,32 +8,97 @@
 //
 //------------------------------------------------------------------------------
 
-// Functions
+#ifndef FUNCTIONS_H_
+#define FUNCTIONS_H_
 
-// Main
+//------------------------------------------------------------------------------
+// main.c
+//------------------------------------------------------------------------------
 void main(void);
+void update(void);
+void Project6(void);
 
-// Initialization
+//------------------------------------------------------------------------------
+// init.c
+//------------------------------------------------------------------------------
 void Init_Conditions(void);
 
-// Interrupts
+//------------------------------------------------------------------------------
+// system.c
+//------------------------------------------------------------------------------
 void enable_interrupts(void);
+ 
+//------------------------------------------------------------------------------
+// timersB0.c
+//------------------------------------------------------------------------------
 __interrupt void Timer0_B0_ISR(void);
+__interrupt void TIMER0_B1_ISR(void);
+// Timer init and helpers
+void Init_Timers(void);
+void Init_Timer_B0(void);
+void Init_Timer_B1(void);
+void Init_Timer_B2(void);
+void Init_Timer_B3(void);
+
+void usleep(unsigned int usec);
+void usleep10(unsigned int usec);
+void five_msec_sleep(unsigned int msec);
+void measure_delay(void);
+void out_control_words(void);
+
+//------------------------------------------------------------------------------
+// switch.c
+//------------------------------------------------------------------------------
+__interrupt void Port4_ISR(void);
+__interrupt void Port2_ISR(void);
 __interrupt void switch_interrupt(void);
 
-// Analog to Digital Converter
+void Init_Switches(void);
+void switch_control(void);
+void enable_switch_SW1(void);
+void enable_switch_SW2(void);
+void enable_switches(void);
+void disable_switch_SW1(void);
+void disable_switch_SW2(void);
+void disable_switches(void);
+void Switches_Process(void);
+void Init_Switch(void);
+void Switch_Process(void);
+void Switch1_Process(void);
+void Switch2_Process(void);
+void menu_act(void);
+void menu_select(void);
 
-// Clocks
+//------------------------------------------------------------------------------
+// ADC.c
+//------------------------------------------------------------------------------
+void Init_ADC(void);
+void HEXtoBCD(int hex_value);
+void HexToBCD(int hex_value);
+void adc_line(char line, char location);
+
+//------------------------------------------------------------------------------
+// clocks.c
+//------------------------------------------------------------------------------
 void Init_Clocks(void);
 
-// LED Configurations
+//------------------------------------------------------------------------------
+// led.c
+//------------------------------------------------------------------------------
 void Init_LEDs(void);
 void IR_LED_control(char selection);
 void backlight_update(void);
 
-  // LCD
+//------------------------------------------------------------------------------
+// display.c
+//------------------------------------------------------------------------------
 void Display_Process(void);
+
+//------------------------------------------------------------------------------
+// LCD.c
+//------------------------------------------------------------------------------
 void Display_Update(char p_L1,char p_L2,char p_L3,char p_L4);
+void Display_Process(void);
 void enable_display_update(void);
 void update_string(char *string_data, int string);
 void Init_LCD(void);
@@ -79,10 +144,14 @@ void lcd_command( char data);
 void LCD_test(void);
 void LCD_iot_meassage_print(int nema_index);
 
-// Menu
-void Menu_Process(void);
+//------------------------------------------------------------------------------
+// stateMachine.c
+//------------------------------------------------------------------------------
+void Carlson_StateMachine(void);
 
-// Ports
+//------------------------------------------------------------------------------
+// ports.c
+//------------------------------------------------------------------------------
 void Init_Ports(void);
 void Init_Port1(void);
 void Init_Port2(void);
@@ -92,7 +161,9 @@ void Init_Port4(void);
 void Init_Port5(void);
 void Init_Port6(void);
 
-// SPI
+//------------------------------------------------------------------------------
+// LCD.c (SPI helpers)
+//------------------------------------------------------------------------------
 void Init_SPI_B1(void);
 void SPI_B1_write(char byte);
 void spi_rs_data(void);
@@ -103,40 +174,14 @@ void SPI_test(void);
 void WriteIns(char instruction);
 void WriteData(char data);
 
-// Switches
-void Init_Switches(void);
-void switch_control(void);
-void enable_switch_SW1(void);
-void enable_switch_SW2(void);
-void enable_switches(void);
-void disable_switch_SW1(void);
-void disable_switch_SW2(void);
-void disable_switches(void);
-void Switches_Process(void);
-void Init_Switch(void);
-void Switch_Process(void);
-void Switch1_Process(void);
-void Switch2_Process(void);
-void menu_act(void);
-void menu_select(void);
+//------------------------------------------------------------------------------
+// IR.c
+//------------------------------------------------------------------------------
+void IR_Update(void);
 
-// Timers
-void Init_Timers(void);
-void Init_Timer_B0(void);
-void Init_Timer_B1(void);
-void Init_Timer_B2(void);
-void Init_Timer_B3(void);
-
-void usleep(unsigned int usec);
-void usleep10(unsigned int usec);
-void five_msec_sleep(unsigned int msec);
-void measure_delay(void);
-void out_control_words(void);
-
-
-// ADDED CODE
-
-// Motor Movement Cases
+//------------------------------------------------------------------------------
+// motors.c
+//------------------------------------------------------------------------------
 void wait_case();
 void start_case(void);
 void run_case(void);
@@ -150,6 +195,9 @@ void Wheels_Process(void);
 
 void motorStop(void);
 void safetyCheck(void);
+
+//------------------------------------------------------------------------------
+#endif // FUNCTIONS_H_
 
 
 

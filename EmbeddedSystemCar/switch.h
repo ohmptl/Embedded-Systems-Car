@@ -12,6 +12,16 @@
 #ifndef SWITCHES_H_
 #define SWITCHES_H_
 
+// Switch state macros
+#define PRESSED                (0)
+#define RELEASED               (1)
+#define NOT_OKAY               (0)
+#define OKAY                   (1)
+
+// Debounce timing for polling path in switch.c (10 x 5ms = ~50ms)
+#define DEBOUNCE_TIME          (10)
+#define DEBOUNCE_RESTART       (0)
+
 void Switch1_Proj5_Process(void);
 
 // Enable Switches

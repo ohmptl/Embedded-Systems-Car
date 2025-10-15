@@ -1,20 +1,18 @@
 //------------------------------------------------------------------------------
-//
-//  Description: This file contains the display function
-//
-//  Ohm Patel
-//  Sept 2025
-//  Built with Code Composer Version: CCS20.3.0
-//
+//  Name:           display.c
+//  Description:    Display update implementaion
+//  Author:         Ohm Patel
+//  Date:           Oct 2025
+//  IDE:            CCS20.3.0
 //------------------------------------------------------------------------------
 
 #include  "msp430.h"
 #include  <string.h>
-#include  "functions.h"
 #include  "LCD.h"
 #include  "macros.h"
 #include  "ports.h"
 #include  "timersB0.h"
+#include  "display.h"
 
 extern volatile unsigned char display_changed;      // change tracker
 extern volatile unsigned char update_display;       // update flag (set by TB0)

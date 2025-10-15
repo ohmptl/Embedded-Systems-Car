@@ -10,10 +10,10 @@
 
 #include  "msp430.h"
 #include  <string.h>
-#include  "functions.h"
 #include  "LCD.h"
 #include  "ports.h"
 #include  "macros.h"
+#include "functions.h"
 
 int port3_4;
 

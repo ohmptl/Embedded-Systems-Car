@@ -10,23 +10,19 @@
 
 #include  "msp430.h"
 #include  <string.h>
-#include  "functions.h"
 #include  "LCD.h"
 #include  "ports.h"
 #include  "macros.h"
 #include  "timersB0.h"
+#include  "switch.h"
+#include  "motors.h"
+#include  "states.h"
 
 // Globals ---------------------------------------------------------------------
 extern unsigned char dispEvent;                   // Track display state
 extern volatile unsigned char display_changed;    // Track change y/n
 extern unsigned char event;                       // set event flag for motors.c
 extern char display_line[4][11];                  // 2-D char array for display 
-
-extern unsigned int straight_step;
-extern unsigned int circle_step;
-extern unsigned int circle_step2;
-extern unsigned int triangle_step;
-extern unsigned int figure8_step;
 
 extern unsigned char state;
 
@@ -48,64 +44,64 @@ extern volatile unsigned int update_display_count;
 extern void update_string(char *s, int line);
 
 
-// Switch Functions ------------------------------------------------------------
+// // Switch Functions ------------------------------------------------------------ OLD
 
-void Switches_Process(void){    // Polling fallback (kept for compatibility)
+// void Switches_Process(void){    // Polling fallback (kept for compatibility)
 
-    Switch1_Process();
-    Switch2_Process();
+//     Switch1_Process();
+//     Switch2_Process();
 
-}
+// }
 
-void Switch1_Process(void){
-// Switch Setup-----------------------------------------------------------------
-    if (okay_to_look_at_switch1 && sw1_position){
-        if (!(P4IN & SW1)){
-            sw1_position = PRESSED;
-            okay_to_look_at_switch1 = NOT_OKAY;
-            count_debounce_SW1 = DEBOUNCE_RESTART;
-//------------------------------------------------------------------------------
-            backlight = ON;
-            state = WAIT;
-            event = GOFORWARD1;
-            secTime = 2;
-//------------------------------------------------------------------------------
-        }
-    }
-    if (count_debounce_SW1 <= DEBOUNCE_TIME){
-        count_debounce_SW1++;
-    } else{
-        okay_to_look_at_switch1 = OKAY;
-        if (P4IN & SW1){
-            sw1_position = RELEASED;
-        }
-    }
-//------------------------------------------------------------------------------
-}
+// void Switch1_Process(void){
+// // Switch Setup-----------------------------------------------------------------
+//     if (okay_to_look_at_switch1 && sw1_position){
+//         if (!(P4IN & SW1)){
+//             sw1_position = PRESSED;
+//             okay_to_look_at_switch1 = NOT_OKAY;
+//             count_debounce_SW1 = DEBOUNCE_RESTART;
+// //------------------------------------------------------------------------------
+//             backlight = ON;
+//             state = WAIT;
+//             event = GOFORWARD1;
+//             secTime = 2;
+// //------------------------------------------------------------------------------
+//         }
+//     }
+//     if (count_debounce_SW1 <= DEBOUNCE_TIME){
+//         count_debounce_SW1++;
+//     } else{
+//         okay_to_look_at_switch1 = OKAY;
+//         if (P4IN & SW1){
+//             sw1_position = RELEASED;
+//         }
+//     }
+// //------------------------------------------------------------------------------
+// }
 
 
-void Switch2_Process(void){
-// Switch Setup-----------------------------------------------------------------
-    if (okay_to_look_at_switch2 && sw2_position){
-        if (!(P2IN & SW2)){
-            sw2_position = PRESSED;
-            okay_to_look_at_switch2 = NOT_OKAY;
-            count_debounce_SW2 = DEBOUNCE_RESTART;
-//------------------------------------------------------------------------------
-// Enter Switch logic here
-// Switch Setup-----------------------------------------------------------------
-        }
-    }
-    if (count_debounce_SW2 <= DEBOUNCE_TIME){
-        count_debounce_SW2++;
-    }else{
-        okay_to_look_at_switch2 = OKAY;
-        if (P2IN & SW2){
-            sw2_position = RELEASED;
-        }
-    }
-//------------------------------------------------------------------------------
-}
+// void Switch2_Process(void){
+// // Switch Setup-----------------------------------------------------------------
+//     if (okay_to_look_at_switch2 && sw2_position){
+//         if (!(P2IN & SW2)){
+//             sw2_position = PRESSED;
+//             okay_to_look_at_switch2 = NOT_OKAY;
+//             count_debounce_SW2 = DEBOUNCE_RESTART;
+// //------------------------------------------------------------------------------
+// // Enter Switch logic here
+// // Switch Setup-----------------------------------------------------------------
+//         }
+//     }
+//     if (count_debounce_SW2 <= DEBOUNCE_TIME){
+//         count_debounce_SW2++;
+//     }else{
+//         okay_to_look_at_switch2 = OKAY;
+//         if (P2IN & SW2){
+//             sw2_position = RELEASED;
+//         }
+//     }
+// //------------------------------------------------------------------------------ END OLD
+// }
 
 //------------------------------------------------------------------------------
 // Interrupt-driven switch handling for SW1 (P4.1) and SW2 (P2.3)
