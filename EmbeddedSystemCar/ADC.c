@@ -32,7 +32,7 @@ void Init_ADC(void){
   //-----------------------------------------------------------------------------
   // ADCCTL0 Register
   ADCCTL0 = 0;              // Reset
-    ADCCTL0 |= ADCSHT_3;      // 32 ADC clocks for more settling
+    ADCCTL0 |= ADCSHT_2;      // 16 ADC clocks (LED gated by ISR)
   ADCCTL0 |= ADCMSC;        // MSC
   ADCCTL0 |= ADCON;         // ADC ON
   
@@ -48,8 +48,7 @@ void Init_ADC(void){
   
   // ADCCTL2 Register
   ADCCTL2 = 0;              // Reset
-    ADCCTL2 &= ~(ADCPDIV_3);  // Clear pre-divider bits
-    ADCCTL2 |= ADCPDIV_1;     // Pre-divide by 4 for slower sampling clock
+    ADCCTL2 &= ~(ADCPDIV_3);  // Clear pre-divider bits (use /1)
   ADCCTL2 |= ADCRES_2;      // ADC resolution 10b = 12 bit (14 clock cycle conversion time)
   ADCCTL2 &= ~ADCDF;        // ADC data read-back format 0b = Binary unsigned.
   ADCCTL2 &= ~ADCSR;        // ADC sampling rate 0b = ADC buffer supports up to 200 ksps

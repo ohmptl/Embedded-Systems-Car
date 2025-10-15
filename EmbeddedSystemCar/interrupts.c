@@ -247,15 +247,15 @@ __interrupt void TIMER0_B1_ISR(void){
 
                 ADCLeft = ADCMEM0;                       // Move result into Global Values
                 ADCLeft = ADCLeft >> 2;                  // 12-bit -> 10-bit
-                ADCLeft = 1023 - ADCLeft;               // Invert so black -> high, white -> low
 
                 if(state != WAIT2 && state != BLACKLINE){
                     HEXtoBCD(ADCLeft);
                     dispPrint(adc_char,2);
                 }
 
-                //            ADC_Update = TRUE;
-
+                // Chain to next conversion in this frame
+                ADCCTL0 |= ADCENC;
+                ADCCTL0 |= ADCSC;
                 break;
 
             case 0x01:                                   // Channel A3 (Right) Interrupt
@@ -264,13 +264,13 @@ __interrupt void TIMER0_B1_ISR(void){
 
                 ADCRight = ADCMEM0;                      // Move result into Global Values
                 ADCRight = ADCRight >> 2;                // 12-bit -> 10-bit
-                ADCRight = 1023 - ADCRight;              // Invert so black -> high, white -> low
                 if(state != WAIT2 && state != BLACKLINE){
                     HEXtoBCD(ADCRight);
                     dispPrint(adc_char,3);
                 }
-                //            ADC_Update = TRUE;
-
+                // Chain to next conversion in this frame
+                ADCCTL0 |= ADCENC;
+                ADCCTL0 |= ADCSC;
                 break;
 
             case 0x02:                                   // Channel A5 (Thumb) Interrupt
@@ -283,17 +283,15 @@ __interrupt void TIMER0_B1_ISR(void){
                     HEXtoBCD(ADCThumb);
                     dispPrint(adc_char,4);
                 }
-                //            ADC_Update = TRUE;
+                // End of frame: reset index and turn off IR LED
                 ADCChannel = 0;
+                if(IR == ON){ P2OUT &= ~IR_LED; }
                 break;
 
             default:
                 break;
             }
-            // End of conversion for this frame; turn off IR LED to reduce saturation
-            if(IR == ON){ P2OUT &= ~IR_LED; }
-            ADCCTL0 |= ADCENC;                          // Re-enable conversions for next frame
-            ADCCTL0 |= ADCSC;                           // Start next frame
+            // Wait for next Timer0_B0 tick to start a new frame
             break;
             default:
                 break;
