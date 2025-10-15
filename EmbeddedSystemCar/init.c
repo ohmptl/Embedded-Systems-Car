@@ -42,4 +42,7 @@ void Init_Conditions(void){
 
   enable_interrupts();
 
+  // Ensure port interrupts are enabled for SW1/SW2
+  enable_switches();
+
 }

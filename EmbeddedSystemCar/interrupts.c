@@ -39,7 +39,7 @@ extern volatile unsigned int ADCRight;
 extern volatile unsigned int ADCThumb;
 
 extern char state;
-extern char adc_char[4];
+extern char adc_char[10];
 
 // IR flags used across modules
 extern unsigned int IR;

@@ -17,7 +17,7 @@
 
 // Global Variables
 extern char display_line[4][11];
-char adc_char[4]; // Holds the BCD characters for display
+char adc_char[10]; // Holds the BCD characters for display (null-terminated)
 
 // ADC results used elsewhere in the app (main.c)
 volatile unsigned int ADCLeft;
