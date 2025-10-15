@@ -41,21 +41,27 @@ void Init_Port1(void){
     P1SEL1 &= ~A1_SEEED;
     P1DIR  &= ~A1_SEEED;
 
-    P1SEL0 &= ~V_DETECT_L;
-    P1SEL1 &= ~V_DETECT_L;
+    // V_DETECT_L on P1.2 (A2) - set to analog function
+    P1SEL0 |= V_DETECT_L;
+    P1SEL1 |= V_DETECT_L;
     P1DIR  &= ~V_DETECT_L;
+    P1REN  &= ~V_DETECT_L;
 
-    P1SEL0 &= ~V_DETECT_R;
-    P1SEL1 &= ~V_DETECT_R;
+    // V_DETECT_R on P1.3 (A3) - set to analog function
+    P1SEL0 |= V_DETECT_R;
+    P1SEL1 |= V_DETECT_R;
     P1DIR  &= ~V_DETECT_R;
+    P1REN  &= ~V_DETECT_R;
 
     P1SEL0 &= ~A4_SEEED;
     P1SEL1 &= ~A4_SEEED;
     P1DIR  &= ~A4_SEEED;
 
-    P1SEL0 &= ~V_THUMB;
-    P1SEL1 &= ~V_THUMB;
+    // V_THUMB on P1.5 (A5) - set to analog function
+    P1SEL0 |= V_THUMB;
+    P1SEL1 |= V_THUMB;
     P1DIR  &= ~V_THUMB;
+    P1REN  &= ~V_THUMB;
 
     P1SEL0 &= ~UCA0RXD;
     P1SEL1 &= ~UCA0RXD;

@@ -17,6 +17,6 @@
 
 // Homework 6 - LCD Blink timing using 5ms TB0 system tick (legacy)
 #define LCD_BLINK_HALF_TICKS    (100)
-#define IR_MAGIC_NUM (300)
+#define IR_MAGIC_NUM (00)
 
 #endif /* MACROS_H_ */
