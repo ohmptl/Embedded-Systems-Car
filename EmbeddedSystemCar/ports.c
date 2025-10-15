@@ -251,24 +251,24 @@ void Init_Port6(void){
     P6DIR = 0x00;
 
 
-    P6SEL0 &= ~L_FORWARD;
+    P6SEL0 |= L_FORWARD;
     P6SEL1 &= ~L_FORWARD;
-    P6OUT  &= ~L_FORWARD;
+    // P6OUT  &= ~L_FORWARD;
     P6DIR  |= L_FORWARD;
 
-    P6SEL0 &= ~R_FORWARD;
+    P6SEL0 |= R_FORWARD;
     P6SEL1 &= ~R_FORWARD;
-    P6OUT  &= ~R_FORWARD;
+    // P6OUT  &= ~R_FORWARD;
     P6DIR  |= R_FORWARD;
 
-    P6SEL0 &= ~L_REVERSE;
+    P6SEL0 |= L_REVERSE;
     P6SEL1 &= ~L_REVERSE;
-    P6OUT  &= ~L_REVERSE;
+    // P6OUT  &= ~L_REVERSE;
     P6DIR  |= L_REVERSE;
 
-    P6SEL0 &= ~R_REVERSE;
+    P6SEL0 |= R_REVERSE;
     P6SEL1 &= ~R_REVERSE;
-    P6OUT  &= ~R_REVERSE;
+    // P6OUT  &= ~R_REVERSE;
     P6DIR  |= R_REVERSE;
 
     P6SEL0 &= ~LCD_BACKLITE;
