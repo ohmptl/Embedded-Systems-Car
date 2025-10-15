@@ -38,7 +38,7 @@
 #define RELEASED               (1)
 #define NOT_OKAY               (0)
 #define OKAY                   (1)
-#define DEBOUNCE_TIME          (12)
+#define DEBOUNCE_TIME          (10)  // 10 x 5ms = ~50ms debounce
 #define DEBOUNCE_RESTART       (0)
 #define WAITING2START          (500)
 
@@ -51,5 +51,8 @@
 // Homework 5
 #define USE_GPIO (0x00)
 #define USE_SMCLK (0x01)
+
+// Homework 6 - LCD Blink timing using 5ms TB0 system tick
+#define LCD_BLINK_HALF_TICKS   (100) // 100 x 5ms = 500ms (2 Hz blink)
 
 #endif /* MACROS_H_ */

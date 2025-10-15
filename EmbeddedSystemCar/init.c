@@ -43,4 +43,7 @@ void Init_Conditions(void){
 
   enable_interrupts();
 
+  // Enable switch interrupts after ports are initialized
+  enable_switches();
+
 }

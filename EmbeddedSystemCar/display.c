@@ -14,10 +14,13 @@
 #include  "LCD.h"
 #include  "macros.h"
 #include  "ports.h"
+#include  "timersB0.h"
 
-extern volatile unsigned char display_changed;      //change tracker
-extern volatile unsigned char update_display;       //update flag
+extern volatile unsigned char display_changed;      // change tracker
+extern volatile unsigned char update_display;       // update flag (set by TB0)
 extern unsigned int backlight;                      // backlight on/off flag
+
+// For HW06, backlight blinking is handled by TB0 CCR0 every 200ms.
 
 void Display_Process(void){
 

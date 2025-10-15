@@ -29,9 +29,7 @@ void debounce(void);
 void debounceSW1(void);
 void debounceSW2(void);
 
-// DEFINES
-#define DEBOUNCE_TIME          (5)
-#define DEBOUNCE_RESTART       (0)
+// Debounce constants are defined in macros.h (DEBOUNCE_TIME, DEBOUNCE_RESTART)
 
 #endif /* SWITCHES_H_ */
 
