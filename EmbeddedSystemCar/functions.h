@@ -74,7 +74,6 @@ void menu_select(void);
 //------------------------------------------------------------------------------
 void Init_ADC(void);
 void HEXtoBCD(int hex_value);
-void HexToBCD(int hex_value);
 void adc_line(char line, char location);
 
 //------------------------------------------------------------------------------

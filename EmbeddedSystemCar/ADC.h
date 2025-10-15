@@ -25,8 +25,8 @@
 // Function Prototypes
 //------------------------------------------------------------------------------
 void Init_ADC(void);
-void HexToBCD(int hex_value);
 void adc_line(char line, char location);
+void HEXtoBCD(int hex_value);
 
 //------------------------------------------------------------------------------
 

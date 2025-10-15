@@ -13,20 +13,20 @@
 #include "ports.h"
 
 //------------------------------------------------------------------------------
-// Module Globals (optional)
+// Module Globals (defined here, declared in IR.h)
 //------------------------------------------------------------------------------
-unsigned int IR; // IR status Flag (ON/OFF)
-unsigned int IRChange;
+unsigned int IR = 0;
+unsigned int IRChange = 0;
 
 //------------------------------------------------------------------------------
 // Enable/Disable IR subsystem
 //------------------------------------------------------------------------------
 void IR_Update(void){
-    if(IR == OFF){
-        P2OUT  &= ~IR_LED;
-    }
-    else{
+    // Drive LED directly from IR flag
+    if(IR == ON){
         P2OUT  |=  IR_LED;
+    } else {
+        P2OUT  &= ~IR_LED;
     }
 }
 

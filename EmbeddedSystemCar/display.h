@@ -12,5 +12,6 @@
 // Function Prototypes
 void Display_Process(void);
 void backlight_update(void);
+void dispPrint(char *line, char lineToUpdate);
 
 #endif // DISPLAY_H_
