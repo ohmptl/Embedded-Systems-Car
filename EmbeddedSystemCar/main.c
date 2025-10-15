@@ -82,7 +82,10 @@ void main(void){
   Init_Conditions();                   // Initialize Variables and Initial Conditions
   Init_Timers();                       // Initialize Timers
   Init_LCD();                          // Initialize LCD
-  // P2OUT &= ~RESET_LCD;
+    // P2OUT &= ~RESET_LCD;
+
+  // After all peripherals are configured, enable switch interrupts
+  enable_switches();
 
   strcpy(display_line[0], "   NCSU   ");
   strcpy(display_line[1], " WOLFPACK ");
@@ -102,7 +105,7 @@ void main(void){
     while(ALWAYS) {                      
         Carlson_StateMachine();         // Run a Time Based State Machine
         Display_Process();              // Update Display based on display_changed
-        backlight_update();             // Turn ON Backlight
+        // backlight_update();             // Turn ON Backlight do not need this for HW6
         P3OUT ^= TEST_PROBE;            // Change State of TEST_PROBE OFF
         if(Time_Sequence != old_Time_Sequence){
             mytime++;
@@ -111,9 +114,6 @@ void main(void){
             time_change = 1;
         }
 
-        Switch1_Process();
-        Wheels_Process();
-        // safetyCheck();
         
 
     }

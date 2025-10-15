@@ -16,6 +16,7 @@
 #include  "msp430.h"
 #include  <string.h>
 #include  "functions.h"
+#include "ports.h"
 #include  "LCD.h"
 #include  "macros.h"
 #include  "ports.h"
@@ -177,6 +178,11 @@ __interrupt void TIMER0_B1_ISR(void) {
         }
       } else {
         TB0CCTL1 &= ~CCIE;             // safety: disable if not active
+      }
+      // If both debounces are complete, re-enable backlight blink CCR0
+      if (!debounce_active1 && !debounce_active2) {
+        TB0CCR0 = TB0R + (unsigned int)CCR0_DELTA_COUNTS;
+        TB0CCTL0 |= CCIE;
       }
       break;
 
