@@ -27,50 +27,65 @@ void Init_Ports(void){
 }
 
 
+// void Init_Port1(void){
+
+//     P1OUT = 0x00;                 // P1 set Low
+//     P1DIR = 0x00;                 // Set P1 direction to output
+
+//     P1SEL0 &= ~RED_LED;
+//     P1SEL1 &= ~RED_LED;
+//     P1OUT  &= ~RED_LED;
+//     P1DIR  |= RED_LED;
+
+//     P1SEL0 &= ~A1_SEEED;
+//     P1SEL1 &= ~A1_SEEED;
+//     P1DIR  &= ~A1_SEEED;
+
+//     P1SEL0 &= ~V_DETECT_L;
+//     P1SEL1 &= ~V_DETECT_L;
+//     P1DIR  &= ~V_DETECT_L;
+
+//     P1SEL0 &= ~V_DETECT_R;
+//     P1SEL1 &= ~V_DETECT_R;
+//     P1DIR  &= ~V_DETECT_R;
+
+//     P1SEL0 &= ~A4_SEEED;
+//     P1SEL1 &= ~A4_SEEED;
+//     P1DIR  &= ~A4_SEEED;
+
+//     P1SEL0 &= ~V_THUMB;
+//     P1SEL1 &= ~V_THUMB;
+//     P1DIR  &= ~V_THUMB;
+
+//     P1SEL0 &= ~UCA0RXD;
+//     P1SEL1 &= ~UCA0RXD;
+//     P1DIR  &= ~UCA0RXD;
+
+//     P1SEL0 &= ~UCA0TXD;
+//     P1SEL1 &= ~UCA0TXD;
+//     P1DIR  &= ~UCA0TXD;
+
+// }
+
 void Init_Port1(void){
+    P1OUT = 0x00;
+    P1DIR = 0x00;
 
-    P1OUT = 0x00;                 // P1 set Low
-    P1DIR = 0x00;                 // Set P1 direction to output
+    P1SEL0 &= ~RED_LED; // Set RED_LED as GP I/O
+    P1SEL1 &= ~RED_LED; // Set RED_LED as GP I/O
+    P1OUT |= RED_LED; // Set Red LED On
+    P1DIR |= RED_LED; // Set Red LED direction to output
 
-    P1SEL0 &= ~RED_LED;
-    P1SEL1 &= ~RED_LED;
-    P1OUT  &= ~RED_LED;
-    P1DIR  |= RED_LED;
+    P1SELC |= A1_SEEED; // ADC input for A1_SEEED
+    P1SELC |= V_DETECT_L; // ADC input for V_DETECT_L
+    P1SELC |= V_DETECT_R; // ADC input for V_DETECT_R
+    P1SELC |= A4_SEEED; // ADC input for V_A4_SEEED
+    P1SELC |= V_THUMB; // ADC input for V_THUMB
 
-    P1SEL0 &= ~A1_SEEED;
-    P1SEL1 &= ~A1_SEEED;
-    P1DIR  &= ~A1_SEEED;
-
-    // V_DETECT_L on P1.2 (A2) - set to analog function
-    P1SEL0 |= V_DETECT_L;
-    P1SEL1 |= V_DETECT_L;
-    P1DIR  &= ~V_DETECT_L;
-    P1REN  &= ~V_DETECT_L;
-
-    // V_DETECT_R on P1.3 (A3) - set to analog function
-    P1SEL0 |= V_DETECT_R;
-    P1SEL1 |= V_DETECT_R;
-    P1DIR  &= ~V_DETECT_R;
-    P1REN  &= ~V_DETECT_R;
-
-    P1SEL0 &= ~A4_SEEED;
-    P1SEL1 &= ~A4_SEEED;
-    P1DIR  &= ~A4_SEEED;
-
-    // V_THUMB on P1.5 (A5) - set to analog function
-    P1SEL0 |= V_THUMB;
-    P1SEL1 |= V_THUMB;
-    P1DIR  &= ~V_THUMB;
-    P1REN  &= ~V_THUMB;
-
-    P1SEL0 &= ~UCA0RXD;
-    P1SEL1 &= ~UCA0RXD;
-    P1DIR  &= ~UCA0RXD;
-
-    P1SEL0 &= ~UCA0TXD;
-    P1SEL1 &= ~UCA0TXD;
-    P1DIR  &= ~UCA0TXD;
-
+    P1SEL0 |= UCA0TXD; // UCA0TXD pin
+    P1SEL1 &= ~UCA0TXD; // UCA0TXD pin
+    P1SEL0 |= UCA0RXD; // UCA0RXD pin
+    P1SEL1 &= ~UCA0RXD; // UCA0RXD pin
 }
 
 
@@ -257,24 +272,24 @@ void Init_Port6(void){
     P6DIR = 0x00;
 
 
-    P6SEL0 |= L_FORWARD;
+    P6SEL0 &= ~L_FORWARD;
     P6SEL1 &= ~L_FORWARD;
-    // P6OUT  &= ~L_FORWARD;
+    P6OUT  &= ~L_FORWARD;
     P6DIR  |= L_FORWARD;
 
-    P6SEL0 |= R_FORWARD;
+    P6SEL0 &= ~R_FORWARD;
     P6SEL1 &= ~R_FORWARD;
-    // P6OUT  &= ~R_FORWARD;
+    P6OUT  &= ~R_FORWARD;
     P6DIR  |= R_FORWARD;
 
-    P6SEL0 |= L_REVERSE;
+    P6SEL0 &= ~L_REVERSE;
     P6SEL1 &= ~L_REVERSE;
-    // P6OUT  &= ~L_REVERSE;
+    P6OUT  &= ~L_REVERSE;
     P6DIR  |= L_REVERSE;
 
-    P6SEL0 |= R_REVERSE;
+    P6SEL0 &= ~R_REVERSE;
     P6SEL1 &= ~R_REVERSE;
-    // P6OUT  &= ~R_REVERSE;
+    P6OUT  &= ~R_REVERSE;
     P6DIR  |= R_REVERSE;
 
     P6SEL0 &= ~LCD_BACKLITE;

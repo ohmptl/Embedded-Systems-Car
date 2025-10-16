@@ -39,7 +39,7 @@ extern volatile unsigned int ADCRight;
 extern volatile unsigned int ADCThumb;
 
 extern char state;
-extern char adc_char[5];
+extern char adc_char[10];
 
 // IR flags used across modules
 extern unsigned int IR;
@@ -47,9 +47,6 @@ extern unsigned int IRChange;
 
 // Local ADC channel index for ISR rotation
 static volatile unsigned int ADCChannel = 0;
-#ifndef ADCINCH_MASK
-#define ADCINCH_MASK (0x0F) // ADCMCTL0 input channel field mask
-#endif
 
 // Timers
 #pragma vector = TIMER0_B0_VECTOR
@@ -63,10 +60,6 @@ __interrupt void Timer0_B0_ISR(void){
     //    State_Sequence = Time_Sequence;
     //    P6OUT ^= LCD_BACKLITE;
     TB0CCR0 += TB0CCR0_INTERVAL;
-    // Kick off a new ADC conversion frame and briefly enable IR LED for sampling
-    if(IR == ON){ P2OUT |= IR_LED; }
-    ADCCTL0 |= ADCENC;                          // Ensure conversions are enabled
-    ADCCTL0 |= ADCSC;                           // Start conversion
 }
 
 #pragma vector=TIMER0_B1_VECTOR
@@ -242,40 +235,38 @@ __interrupt void TIMER0_B1_ISR(void){
             ADCCTL0 &= ~ADCENC;                          // Disable ENC bit.
             switch (ADCChannel++){
             case 0x00:                                   // Channel A2 (Left) Interrupt
-                // Next channel: A3 (Right)
-                ADCMCTL0 = (ADCMCTL0 & ~ADCINCH_MASK) | ADCINCH_3;
+                ADCMCTL0 &= ~ADCINCH_2;                  // Disable Last channel A2
+                ADCMCTL0 |=  ADCINCH_3;                  // Enable Next channel A3
 
                 ADCLeft = ADCMEM0;                       // Move result into Global Values
-                ADCLeft = ADCLeft >> 2;                  // 12-bit -> 10-bit
+                ADCLeft = ADCLeft >> 2;                   // Divide the result by 4
 
                 if(state != WAIT2 && state != BLACKLINE){
                     HEXtoBCD(ADCLeft);
                     dispPrint(adc_char,2);
                 }
 
-                // Chain to next conversion in this frame
-                ADCCTL0 |= ADCENC;
-                ADCCTL0 |= ADCSC;
+                //            ADC_Update = TRUE;
+
                 break;
 
             case 0x01:                                   // Channel A3 (Right) Interrupt
-                // Next channel: A5 (Thumb)
-                ADCMCTL0 = (ADCMCTL0 & ~ADCINCH_MASK) | ADCINCH_5;
+                ADCMCTL0 &= ~ADCINCH_3;                  // Disable Last channel A2
+                ADCMCTL0 |=  ADCINCH_5;                  // Enable Next channel A1
 
                 ADCRight = ADCMEM0;                      // Move result into Global Values
-                ADCRight = ADCRight >> 2;                // 12-bit -> 10-bit
+                ADCRight = ADCRight >> 2;                 // Divide the result by 4
                 if(state != WAIT2 && state != BLACKLINE){
                     HEXtoBCD(ADCRight);
                     dispPrint(adc_char,3);
                 }
-                // Chain to next conversion in this frame
-                ADCCTL0 |= ADCENC;
-                ADCCTL0 |= ADCSC;
+                //            ADC_Update = TRUE;
+
                 break;
 
             case 0x02:                                   // Channel A5 (Thumb) Interrupt
-                // Next channel: A2 (Left)
-                ADCMCTL0 = (ADCMCTL0 & ~ADCINCH_MASK) | ADCINCH_2;
+                ADCMCTL0 &= ~ADCINCH_5;                  // Disable Last channel A?
+                ADCMCTL0 |= ADCINCH_2;                   // Enable Next [First] channel 2
 
                 ADCThumb = ADCMEM0;                      // Move result into Global Values
                 ADCThumb = ADCThumb >> 2;                 // Divide the result by 4
@@ -283,15 +274,15 @@ __interrupt void TIMER0_B1_ISR(void){
                     HEXtoBCD(ADCThumb);
                     dispPrint(adc_char,4);
                 }
-                // End of frame: reset index and turn off IR LED
+                //            ADC_Update = TRUE;
                 ADCChannel = 0;
-                if(IR == ON){ P2OUT &= ~IR_LED; }
                 break;
 
             default:
                 break;
             }
-            // Wait for next Timer0_B0 tick to start a new frame
+            ADCCTL0 |= ADCENC;                          // Enable Conversions
+            ADCCTL0 |= ADCSC;
             break;
             default:
                 break;
