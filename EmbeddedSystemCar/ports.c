@@ -271,30 +271,34 @@ void Init_Port6(void){
     P6OUT = 0x00;
     P6DIR = 0x00;
 
-
-    P6SEL0 &= ~L_FORWARD;
+    // Configure P6.0 (L_FORWARD) for PWM - TB3.1
+    P6SEL0 |= L_FORWARD;
     P6SEL1 &= ~L_FORWARD;
-    P6OUT  &= ~L_FORWARD;
+    // P6OUT  &= ~L_FORWARD;
     P6DIR  |= L_FORWARD;
 
-    P6SEL0 &= ~R_FORWARD;
+    // Configure P6.1 (R_FORWARD) for PWM - TB3.2
+    P6SEL0 |= R_FORWARD;
     P6SEL1 &= ~R_FORWARD;
-    P6OUT  &= ~R_FORWARD;
+    // P6OUT  &= ~R_FORWARD;
     P6DIR  |= R_FORWARD;
 
-    P6SEL0 &= ~L_REVERSE;
+    // Configure P6.2 (L_REVERSE) for PWM - TB3.3
+    P6SEL0 |= L_REVERSE;
     P6SEL1 &= ~L_REVERSE;
-    P6OUT  &= ~L_REVERSE;
+    // P6OUT  &= ~L_REVERSE;
     P6DIR  |= L_REVERSE;
 
-    P6SEL0 &= ~R_REVERSE;
+    // Configure P6.3 (R_REVERSE) for PWM - TB3.4
+    P6SEL0 |= R_REVERSE;
     P6SEL1 &= ~R_REVERSE;
-    P6OUT  &= ~R_REVERSE;
+    // P6OUT  &= ~R_REVERSE;
     P6DIR  |= R_REVERSE;
 
-    P6SEL0 &= ~LCD_BACKLITE;
+    // Configure P6.4 (LCD_BACKLITE) for PWM - TB3.5
+    P6SEL0 |= LCD_BACKLITE;
     P6SEL1 &= ~LCD_BACKLITE;
-    P6OUT  |= LCD_BACKLITE;
+    // P6OUT  |= LCD_BACKLITE;
     P6DIR  |= LCD_BACKLITE;
 
     P6SEL0 &= ~P6_5;

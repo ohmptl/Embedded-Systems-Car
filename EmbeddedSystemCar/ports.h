@@ -79,11 +79,11 @@
 #define PORTS_H_END_GUARD_PLACEHOLDER 0
 
 // Port 6 Pins
-#define L_FORWARD              (0x01) // 6.0 P6_0_PWM LCD_BACKLITE
+#define L_FORWARD              (0x01) // 6.0 P6_0_PWM
 #define R_FORWARD              (0x02) // 6.1 P6_1_PWM
 #define L_REVERSE              (0x04) // 6.2 P6_2_PWM
 #define R_REVERSE              (0x08) // 6.3 P6_3_PWM
-#define LCD_BACKLITE           (0x10) // 6.4 P6_4_PWM
+#define LCD_BACKLITE           (0x10) // 6.4 P6_4_PWM LCD_BACKLITE
 #define P6_5                   (0x20) // 6.5
 #define GRN_LED                (0x40) // 6.6 GREEN LED
 
