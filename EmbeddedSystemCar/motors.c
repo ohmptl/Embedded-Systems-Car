@@ -404,4 +404,28 @@ void safetyCheck(void) {
     }
 }
 
+// Variable speed motor control (Project 7)
+void set_motor_speeds(unsigned int left_pwm, unsigned int right_pwm) {
+    LEFT_REVERSE_SPEED = PWM1_WHEEL_OFF;
+    RIGHT_REVERSE_SPEED = PWM1_WHEEL_OFF;
+    LEFT_FORWARD_SPEED = left_pwm;
+    RIGHT_FORWARD_SPEED = right_pwm;
+}
+
+// Pivot left: left wheel stopped, right forward
+void pivot_left_pwm(unsigned int speed) {
+    LEFT_FORWARD_SPEED = PWM1_WHEEL_OFF;
+    LEFT_REVERSE_SPEED = PWM1_WHEEL_OFF;
+    RIGHT_REVERSE_SPEED = PWM1_WHEEL_OFF;
+    RIGHT_FORWARD_SPEED = speed;
+}
+
+// Pivot right: right wheel stopped, left forward
+void pivot_right_pwm(unsigned int speed) {
+    RIGHT_FORWARD_SPEED = PWM1_WHEEL_OFF;
+    RIGHT_REVERSE_SPEED = PWM1_WHEEL_OFF;
+    LEFT_REVERSE_SPEED = PWM1_WHEEL_OFF;
+    LEFT_FORWARD_SPEED = speed;
+}
+
 

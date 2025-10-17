@@ -17,6 +17,7 @@
 void main(void);
 void update(void);
 void Project6(void);
+void Project7(void);
 
 //------------------------------------------------------------------------------
 // init.c
@@ -194,6 +195,9 @@ void Wheels_Process(void);
 
 void motorStop(void);
 void safetyCheck(void);
+void set_motor_speeds(unsigned int left_pwm, unsigned int right_pwm);
+void pivot_left_pwm(unsigned int speed);
+void pivot_right_pwm(unsigned int speed);
 
 //------------------------------------------------------------------------------
 #endif // FUNCTIONS_H_

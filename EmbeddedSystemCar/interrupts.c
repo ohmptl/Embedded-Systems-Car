@@ -33,6 +33,13 @@ extern volatile unsigned char display_changed;
 extern unsigned int count_debounce_SW1;
 extern unsigned int count_debounce_SW2;
 
+// Timer display globals (Project 7)
+extern volatile unsigned int time_ticks_200ms;    // increments every 0.2s when running
+extern volatile unsigned char timer_running;      // 1 when counting, 0 when stopped
+
+// SW1 press event flag (Project 7)
+extern volatile unsigned char sw1_press_event;
+
 // ADC results used by main/state machine
 extern volatile unsigned int ADCLeft;
 extern volatile unsigned int ADCRight;
@@ -57,8 +64,10 @@ __interrupt void Timer0_B0_ISR(void){
     //---------------------------------------------------------------------------
     update_display = TRUE;
     Time_Sequence++;
-    //    State_Sequence = Time_Sequence;
-    //    P6OUT ^= LCD_BACKLITE;
+    // Increment 0.2s timer if enabled (Project 7)
+    if (timer_running && time_ticks_200ms < 4999) {
+        time_ticks_200ms++;
+    }
     TB0CCR0 += TB0CCR0_INTERVAL;
 }
 
@@ -147,10 +156,8 @@ __interrupt void TIMER0_B1_ISR(void){
             TB0CCR1 = TB0CCR1_INTERVAL;     // CCR1 add offset
             TB0CCTL1 |= CCIE;               // CCR1 enable interrupt
 
-            //SW1 FUNCTIONS:
-            state = WAIT;
-            Time_Sequence = 0;
-            //        State_Sequence = 0;
+            // SW1 press: record event for main loop (Project 7)
+            sw1_press_event = 1;
 
         }
         //-----------------------------------------------------------------------------
@@ -241,12 +248,12 @@ __interrupt void TIMER0_B1_ISR(void){
                 ADCLeft = ADCMEM0;                       // Move result into Global Values
                 ADCLeft = ADCLeft >> 2;                   // Divide the result by 4
 
-                if(state != WAIT2 && state != BLACKLINE){
+                // Display ADC on line 2 only if not in calibration/special states
+                if(state != WAIT2 && state != BLACKLINE &&
+                   state != CAL_AMBIENT && state != CAL_WHITE && state != CAL_BLACK){
                     HEXtoBCD(ADCLeft);
                     dispPrint(adc_char,2);
                 }
-
-                //            ADC_Update = TRUE;
 
                 break;
 
@@ -256,11 +263,13 @@ __interrupt void TIMER0_B1_ISR(void){
 
                 ADCRight = ADCMEM0;                      // Move result into Global Values
                 ADCRight = ADCRight >> 2;                 // Divide the result by 4
-                if(state != WAIT2 && state != BLACKLINE){
+                // Don't overwrite line 3 (reserved for lap/info in CIRCLING)
+                if(state != WAIT2 && state != BLACKLINE &&
+                   state != CAL_AMBIENT && state != CAL_WHITE && state != CAL_BLACK &&
+                   state != CIRCLING){
                     HEXtoBCD(ADCRight);
                     dispPrint(adc_char,3);
                 }
-                //            ADC_Update = TRUE;
 
                 break;
 
@@ -270,11 +279,7 @@ __interrupt void TIMER0_B1_ISR(void){
 
                 ADCThumb = ADCMEM0;                      // Move result into Global Values
                 ADCThumb = ADCThumb >> 2;                 // Divide the result by 4
-                if(state != WAIT2 && state != BLACKLINE){
-                    HEXtoBCD(ADCThumb);
-                    dispPrint(adc_char,4);
-                }
-                //            ADC_Update = TRUE;
+                // Thumb not displayed in Project 7 (line 4 = timer)
                 ADCChannel = 0;
                 break;
 

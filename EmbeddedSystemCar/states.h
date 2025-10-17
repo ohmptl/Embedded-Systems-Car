@@ -26,7 +26,7 @@
 // #define CW                    (2)
 // #define CCW                   (3)
 
-// States
+// States (Project 6 legacy retained; Project 7 adds more)
 #define IDLE                    ('I')
 #define WAIT                    ('W')
 #define FWD                     ('F')
@@ -36,6 +36,16 @@
 #define LINE1                   ('L')
 #define LINE2                   ('l')
 #define DONE                    ('D')
+
+// Project 7 states
+#define CAL_AMBIENT             ('A')  // Calibrate ambient (IR OFF)
+#define CAL_WHITE               ('H')  // Calibrate white paper (IR ON)
+#define CAL_BLACK               ('K')  // Calibrate black tape (IR ON)
+#define INTERCEPT               ('X')  // Drive forward until intercept line
+#define TURNING                 ('t')  // Pivot to align with circle
+#define CIRCLING                ('C')  // Follow the circle
+#define EXIT_CENTER             ('E')  // Turn into circle center
+#define STOPPED                 ('S')  // Final stop
 
 
 #endif // STATES_H_
