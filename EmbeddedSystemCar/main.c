@@ -75,6 +75,28 @@ unsigned int adc_black_right;
 
 unsigned int thresh_black_left;
 unsigned int thresh_black_right;
+unsigned char left_black_high = TRUE;
+unsigned char right_black_high = TRUE;
+unsigned int intercept_thresh_left;
+unsigned int intercept_thresh_right;
+unsigned int intercept_margin_left;
+unsigned int intercept_margin_right;
+unsigned int intercept_entry_left;
+unsigned int intercept_entry_right;
+unsigned char intercept_entry_valid = FALSE;
+
+static unsigned int turning_line_ticks = 0;
+static unsigned int turning_prev_sequence = 0;
+
+#define INTERCEPT_PHASE_SEEK        (0u)
+#define INTERCEPT_PHASE_PAUSE        (1u)
+#define INTERCEPT_PHASE_REVERSE      (2u)
+#define INTERCEPT_PHASE_PAUSE_AFTER  (3u)
+#define INTERCEPT_PHASE_COMPLETE     (4u)
+
+static unsigned char intercept_phase = INTERCEPT_PHASE_SEEK;
+static unsigned int intercept_phase_ticks = 0;
+static unsigned int intercept_prev_sequence = 0;
 
 // Lap timing (reference-style): exactly two laps based on time
 volatile unsigned int lap_ticks_target;  // ticks per lap, mapped from thumbwheel
@@ -127,6 +149,94 @@ void update(void){
     backlight_update();
     IR_Update();
     P3OUT ^= TEST_PROBE;            // Change State of TEST_PROBE OFF
+}
+
+static unsigned char left_sensor_on_black(void){
+    if(left_black_high){
+        return (ADCLeft >= thresh_black_left);
+    }
+    return (ADCLeft <= thresh_black_left);
+}
+
+static unsigned char right_sensor_on_black(void){
+    if(right_black_high){
+        return (ADCRight >= thresh_black_right);
+    }
+    return (ADCRight <= thresh_black_right);
+}
+
+static unsigned char left_sensor_crossed_intercept(void){
+    unsigned int current = ADCLeft;
+    unsigned int threshold = intercept_thresh_left;
+    unsigned int margin = intercept_margin_left ? intercept_margin_left : INTERCEPT_MARGIN_MIN;
+
+    if(!threshold){
+        threshold = thresh_black_left;
+        if(!threshold && adc_white_left){
+            threshold = adc_white_left + margin;
+        }
+    }
+
+    if(left_black_high){
+        if(threshold && (current >= threshold)){
+            return TRUE;
+        }
+        if(adc_white_left && (current > adc_white_left) && ((current - adc_white_left) >= margin)){
+            return TRUE;
+        }
+        if(intercept_entry_valid && (current > intercept_entry_left) && ((current - intercept_entry_left) >= margin)){
+            return TRUE;
+        }
+        return FALSE;
+    }
+
+    if(threshold && (current <= threshold)){
+        return TRUE;
+    }
+    if(adc_white_left && (adc_white_left > current) && ((adc_white_left - current) >= margin)){
+        return TRUE;
+    }
+    if(intercept_entry_valid && (intercept_entry_left > current) && ((intercept_entry_left - current) >= margin)){
+        return TRUE;
+    }
+    return FALSE;
+}
+
+static unsigned char right_sensor_crossed_intercept(void){
+    unsigned int current = ADCRight;
+    unsigned int threshold = intercept_thresh_right;
+    unsigned int margin = intercept_margin_right ? intercept_margin_right : INTERCEPT_MARGIN_MIN;
+
+    if(!threshold){
+        threshold = thresh_black_right;
+        if(!threshold && adc_white_right){
+            threshold = adc_white_right + margin;
+        }
+    }
+
+    if(right_black_high){
+        if(threshold && (current >= threshold)){
+            return TRUE;
+        }
+        if(adc_white_right && (current > adc_white_right) && ((current - adc_white_right) >= margin)){
+            return TRUE;
+        }
+        if(intercept_entry_valid && (current > intercept_entry_right) && ((current - intercept_entry_right) >= margin)){
+            return TRUE;
+        }
+        return FALSE;
+    }
+
+    if(threshold && (current <= threshold)){
+        return TRUE;
+    }
+    if(adc_white_right && (adc_white_right > current) && ((adc_white_right - current) >= margin)){
+        return TRUE;
+    }
+    if(intercept_entry_valid && (intercept_entry_right > current) && ((intercept_entry_right - current) >= margin)){
+        return TRUE;
+    }
+    return FALSE;
 }
 
 
@@ -317,6 +427,66 @@ void Project7(void){
             // Compute thresholds: midpoint between white and black
             thresh_black_left = (adc_black_left + adc_white_left) / 2;
             thresh_black_right = (adc_black_right + adc_white_right) / 2;
+            left_black_high = (adc_black_left >= adc_white_left);
+            right_black_high = (adc_black_right >= adc_white_right);
+
+            unsigned int left_delta = (adc_black_left > adc_white_left) ?
+                                      (adc_black_left - adc_white_left) :
+                                      (adc_white_left - adc_black_left);
+            unsigned int right_delta = (adc_black_right > adc_white_right) ?
+                                       (adc_black_right - adc_white_right) :
+                                       (adc_white_right - adc_black_right);
+
+            unsigned int left_margin = left_delta / INTERCEPT_MARGIN_DIVISOR;
+            unsigned int right_margin = right_delta / INTERCEPT_MARGIN_DIVISOR;
+            if (left_margin < INTERCEPT_MARGIN_MIN) {
+                left_margin = (left_delta < INTERCEPT_MARGIN_MIN) ? left_delta : INTERCEPT_MARGIN_MIN;
+            }
+            if (right_margin < INTERCEPT_MARGIN_MIN) {
+                right_margin = (right_delta < INTERCEPT_MARGIN_MIN) ? right_delta : INTERCEPT_MARGIN_MIN;
+            }
+
+            if (left_margin == 0) {
+                left_margin = 1;
+            }
+            if (right_margin == 0) {
+                right_margin = 1;
+            }
+
+            if (left_margin > left_delta) {
+                left_margin = left_delta;
+            }
+            if (right_margin > right_delta) {
+                right_margin = right_delta;
+            }
+
+            if (left_black_high) {
+                intercept_thresh_left = adc_white_left + left_margin;
+                if (intercept_thresh_left > adc_black_left) {
+                    intercept_thresh_left = adc_black_left;
+                }
+            } else {
+                intercept_thresh_left = (adc_white_left > left_margin) ?
+                                         (adc_white_left - left_margin) : 0;
+                if (intercept_thresh_left < adc_black_left) {
+                    intercept_thresh_left = adc_black_left;
+                }
+            }
+
+            if (right_black_high) {
+                intercept_thresh_right = adc_white_right + right_margin;
+                if (intercept_thresh_right > adc_black_right) {
+                    intercept_thresh_right = adc_black_right;
+                }
+            } else {
+                intercept_thresh_right = (adc_white_right > right_margin) ?
+                                          (adc_white_right - right_margin) : 0;
+                if (intercept_thresh_right < adc_black_right) {
+                    intercept_thresh_right = adc_black_right;
+                }
+            }
+            intercept_margin_left = left_margin;
+            intercept_margin_right = right_margin;
             state = WAIT;
             Time_Sequence = 0;
         }
@@ -338,6 +508,18 @@ void Project7(void){
             // Initialize lap timing targets from thumbwheel
             laps_completed = 0;
             lap_ticks_accum = 0;
+            intercept_entry_left = ADCLeft;
+            intercept_entry_right = ADCRight;
+            intercept_entry_valid = TRUE;
+            if(!intercept_margin_left){
+                intercept_margin_left = INTERCEPT_MARGIN_MIN;
+            }
+            if(!intercept_margin_right){
+                intercept_margin_right = INTERCEPT_MARGIN_MIN;
+            }
+            intercept_phase = INTERCEPT_PHASE_SEEK;
+            intercept_phase_ticks = 0;
+            intercept_prev_sequence = Time_Sequence;
         }
         break;
 
@@ -346,20 +528,73 @@ void Project7(void){
         strcpy(display_line[1], "          ");
         // Display ADC on line 2 & 3 (handled by ADC ISR)
         IR = ON;
-        // Drive straight forward using both motors ON (discrete mode)
-        PWM1_BOTH_FWD();
         display_changed = TRUE;
-        // Detect black line (both sensors below threshold)
-        if (ADCLeft < thresh_black_left && ADCRight < thresh_black_right) {
-            // Confirm latch for some ticks before transitioning
-            if (Time_Sequence >= (ALIGN_CONFIRM_SECONDS * TICKS_PER_SECOND)){
+        
+        switch (intercept_phase) {
+        case INTERCEPT_PHASE_SEEK:
+            PWM1_BOTH_FWD();
+            if (left_sensor_crossed_intercept() || right_sensor_crossed_intercept()) {
+                PWM1_BOTH_OFF();
+                intercept_phase = INTERCEPT_PHASE_PAUSE;
+                intercept_phase_ticks = 0;
+                intercept_prev_sequence = Time_Sequence;
+            } else {
+                Time_Sequence = 0;  // keep timer small while seeking
+            }
+            break;
+
+        default:
+            if (Time_Sequence != intercept_prev_sequence) {
+                intercept_prev_sequence = Time_Sequence;
+                if (intercept_phase_ticks < 0xFFFF) {
+                    intercept_phase_ticks++;
+                }
+            }
+
+            switch (intercept_phase) {
+            case INTERCEPT_PHASE_PAUSE:
+                PWM1_BOTH_OFF();
+                if (intercept_phase_ticks >= INTERCEPT_PAUSE_BEFORE_REV) {
+                    intercept_phase = INTERCEPT_PHASE_REVERSE;
+                    intercept_phase_ticks = 0;
+                }
+                break;
+
+            case INTERCEPT_PHASE_REVERSE:
+                PWM1_BOTH_REV();
+                if (intercept_phase_ticks >= INTERCEPT_BACKUP_TICKS) {
+                    intercept_phase = INTERCEPT_PHASE_PAUSE_AFTER;
+                    intercept_phase_ticks = 0;
+                    PWM1_BOTH_OFF();
+                }
+                break;
+
+            case INTERCEPT_PHASE_PAUSE_AFTER:
+                PWM1_BOTH_OFF();
+                if (intercept_phase_ticks >= INTERCEPT_PAUSE_BEFORE_TURN) {
+                    intercept_phase = INTERCEPT_PHASE_COMPLETE;
+                }
+                break;
+
+            case INTERCEPT_PHASE_COMPLETE:
+                PWM1_BOTH_OFF();
                 state = TURNING;
                 Time_Sequence = 0;
-                PWM1_BOTH_OFF();
+                intercept_phase = INTERCEPT_PHASE_SEEK;
+                intercept_phase_ticks = 0;
+                intercept_prev_sequence = 0;
+                intercept_entry_valid = FALSE;
+                turning_line_ticks = 0;
+                turning_prev_sequence = 0;
+                break;
+
+            default:
+                intercept_phase = INTERCEPT_PHASE_SEEK;
+                intercept_phase_ticks = 0;
+                intercept_prev_sequence = Time_Sequence;
+                break;
             }
-        } else {
-            // Reset confirm timer if line not continuously detected
-            Time_Sequence = 0;
+            break;
         }
         break;
 
@@ -369,39 +604,43 @@ void Project7(void){
         IR = ON;
         display_changed = TRUE;
         // Pivot left until both sensors see black line again (for CW following)
+        // Require continuous detection for ALIGN_CONFIRM_SECONDS to avoid briefly touching the line and missing
         pivot_left_pwm(TURN_SPEED_PWM);
-        if ((ADCLeft < thresh_black_left) && (ADCRight < thresh_black_right)) {
-            state = CIRCLING;
-            Time_Sequence = 0;
-            follow_dir = FOLLOW_DIR_CW;  // Set clockwise direction
-            // Map thumbwheel to lap target seconds and convert to ticks
-            unsigned int span = (LAP_SECONDS_MAX - LAP_SECONDS_MIN);
-            unsigned int secs = LAP_SECONDS_MIN + (ADCThumb * span) / 1023u;
-            lap_ticks_target = secs * TICKS_PER_SECOND;
-            laps_completed = 0;
-            lap_ticks_accum = 0;
+        {
+            unsigned char align_on_black = right_sensor_crossed_intercept(); // CW alignment uses right sensor
+
+            if (Time_Sequence != turning_prev_sequence) {
+                turning_prev_sequence = Time_Sequence;
+                if (align_on_black) {
+                    if (turning_line_ticks < 0xFFFF) {
+                        turning_line_ticks++;
+                    }
+                } else {
+                    turning_line_ticks = 0;
+                }
+            }
+
+            if (align_on_black && (turning_line_ticks >= (ALIGN_CONFIRM_SECONDS * TICKS_PER_SECOND))) {
+                state = CIRCLING;
+                Time_Sequence = 0;
+                turning_line_ticks = 0;
+                turning_prev_sequence = 0;
+                follow_dir = FOLLOW_DIR_CW;  // Set clockwise direction
+                // Use fixed lap duration (tuned for two circuits)
+                unsigned int secs = LAP_SECONDS_FIXED;
+                lap_ticks_target = secs * TICKS_PER_SECOND;
+                laps_completed = 0;
+                lap_ticks_accum = 0;
+            }
         }
         break;
 
     case CIRCLING: {
         strcpy(display_line[0], " CIRCLING ");
-        // Display lap count on line 1
-        display_line[1][0] = ' ';
-        display_line[1][1] = 'L';
-        display_line[1][2] = 'a';
-        display_line[1][3] = 'p';
-        display_line[1][4] = ':';
-        display_line[1][5] = ' ';
-        display_line[1][6] = lap_count + '0';
-        display_line[1][7] = '/';
-        display_line[1][8] = '2';
-        display_line[1][9] = ' ';
-        IR = ON;
-        display_changed = TRUE;
 
         // Discrete ON/OFF steering (reference implementation approach)
-        unsigned char left_on_black = (ADCLeft < thresh_black_left);
-        unsigned char right_on_black = (ADCRight < thresh_black_right);
+    unsigned char left_on_black = left_sensor_on_black();
+    unsigned char right_on_black = right_sensor_on_black();
 
         // Basic discrete steering logic from reference project
         if (left_on_black && right_on_black) {
