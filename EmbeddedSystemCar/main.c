@@ -408,24 +408,15 @@ void Project7(void){
             current_state = LINE_LOST;  // Both on white - line lost!
         }
         
-        // Always correct rightward for clockwise motion
-        switch (current_state) {
-            case LINE_LEFT:
-            case LINE_RIGHT:
-            case LINE_LOST:
-                // Any correction: boost left motor, slow right motor
-                left_pwm  = BASE_SPEED_PWM + STEER_DELTA_PWM;
-                right_pwm = SLOW_SPEED_PWM;
-                break;
-            case LINE_BOTH:
-                // On line: maintain clockwise bias
-                left_pwm  = BASE_SPEED_PWM + CLOCKWISE_BIAS_PWM;
-                right_pwm = BASE_SPEED_PWM;
-                break;
-            default:
-                left_pwm = BASE_SPEED_PWM;
-                right_pwm = BASE_SPEED_PWM;
-                break;
+        // New logic: correct rightward (power left motor) whenever either sensor sees white
+        if (!left_on_black || !right_on_black) {
+            // If either sensor sees white, correct rightward
+            left_pwm  = BASE_SPEED_PWM + STEER_DELTA_PWM;
+            right_pwm = SLOW_SPEED_PWM;
+        } else {
+            // Both sensors see black: go straight with clockwise bias
+            left_pwm  = BASE_SPEED_PWM + CLOCKWISE_BIAS_PWM;
+            right_pwm = BASE_SPEED_PWM;
         }
         
         // Cap PWM limits
