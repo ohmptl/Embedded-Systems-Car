@@ -78,6 +78,7 @@ unsigned int thresh_black_right;
 unsigned int lap_count;
 unsigned int last_lap_tick;
 unsigned char lap_detected_flag;                // debounce for lap detection
+unsigned char last_line_position;               // tracks last known line position (LINE_LEFT, LINE_RIGHT, LINE_CENTER)
 
 //------------------------------------------------------------------------------
 
@@ -366,6 +367,7 @@ void Project7(void){
             lap_count = 0;
             last_lap_tick = 0;
             lap_detected_flag = 0;
+            last_line_position = LINE_CENTER;  // Initialize line position tracking
         }
         break;
 
@@ -385,25 +387,76 @@ void Project7(void){
         IR = ON;
         display_changed = TRUE;
 
-        // Simple steering: if left sees black -> steer right; if right sees black -> steer left
+        // Enhanced line following with state-based control
         unsigned int left_pwm = BASE_SPEED_PWM;
         unsigned int right_pwm = BASE_SPEED_PWM;
         
         unsigned char left_on_black = (ADCLeft < thresh_black_left);
         unsigned char right_on_black = (ADCRight < thresh_black_right);
         
-        if (left_on_black && !right_on_black) {
-            // left on black, right on white => steer right: left faster, right slower
-            left_pwm += STEER_DELTA_PWM;
-            right_pwm -= STEER_DELTA_PWM;
-        } else if (right_on_black && !left_on_black) {
-            // right on black, left on white => steer left: right faster, left slower
-            right_pwm += STEER_DELTA_PWM;
-            left_pwm -= STEER_DELTA_PWM;
+        // Determine current line state
+        unsigned char current_state;
+        if (left_on_black && right_on_black) {
+            current_state = LINE_BOTH;  // Both on black (lap marker or aligned)
+        } else if (left_on_black && !right_on_black) {
+            current_state = LINE_LEFT;  // Line is to the left
+            last_line_position = LINE_LEFT;  // Remember for recovery
+        } else if (!left_on_black && right_on_black) {
+            current_state = LINE_RIGHT;  // Line is to the right
+            last_line_position = LINE_RIGHT;  // Remember for recovery
+        } else {
+            current_state = LINE_LOST;  // Both on white - line lost!
         }
-        // If both on black or both on white, go straight
         
-        // Cap limits
+        // Apply steering based on line state
+        switch (current_state) {
+            case LINE_LEFT:
+                // Left sensor on black => line is under left side
+                // Need to steer RIGHT (away from black): speed up left, slow down right
+                left_pwm = BASE_SPEED_PWM + STEER_DELTA_PWM;
+                right_pwm = SLOW_SPEED_PWM;  // Slow down right wheel for sharp turn
+                break;
+                
+            case LINE_RIGHT:
+                // Right sensor on black => line is under right side
+                // Need to steer LEFT (away from black): speed up right, slow down left
+                right_pwm = BASE_SPEED_PWM + STEER_DELTA_PWM;
+                left_pwm = SLOW_SPEED_PWM;  // Slow down left wheel for sharp turn
+                break;
+                
+            case LINE_BOTH:
+                // Both on black: could be crossing line or perfectly aligned
+                // Go straight at base speed (this is good!)
+                left_pwm = BASE_SPEED_PWM;
+                right_pwm = BASE_SPEED_PWM;
+                break;
+                
+            case LINE_LOST:
+                // Both on white - line lost! Use last known position to recover
+                // Apply AGGRESSIVE correction in the direction of last known line
+                if (last_line_position == LINE_LEFT) {
+                    // Line was on left, we drifted right -> turn LEFT sharply
+                    left_pwm = SLOW_SPEED_PWM;
+                    right_pwm = BASE_SPEED_PWM + LOST_LINE_DELTA_PWM;
+                } else if (last_line_position == LINE_RIGHT) {
+                    // Line was on right, we drifted left -> turn RIGHT sharply
+                    right_pwm = SLOW_SPEED_PWM;
+                    left_pwm = BASE_SPEED_PWM + LOST_LINE_DELTA_PWM;
+                } else {
+                    // Unknown last position (shouldn't happen), try slight left turn
+                    left_pwm = BASE_SPEED_PWM - STEER_DELTA_PWM;
+                    right_pwm = BASE_SPEED_PWM + STEER_DELTA_PWM;
+                }
+                break;
+                
+            default:
+                // Safety: go straight if unknown state
+                left_pwm = BASE_SPEED_PWM;
+                right_pwm = BASE_SPEED_PWM;
+                break;
+        }
+        
+        // Cap PWM limits
         if (left_pwm > PWM_MAX) left_pwm = PWM_MAX;
         if (right_pwm > PWM_MAX) right_pwm = PWM_MAX;
         if (left_pwm < PWM_MIN) left_pwm = PWM_MIN;
