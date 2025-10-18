@@ -387,43 +387,64 @@ void Project7(void){
         IR = ON;
         display_changed = TRUE;
 
-        // Enhanced line following with state-based control
+        // Line following logic for CLOCKWISE circle
+        // Goal: Keep black line under RIGHT sensor (outside of circle)
+        // LEFT sensor should mostly see white (inside of circle)
+        
         unsigned int left_pwm = BASE_SPEED_PWM;
         unsigned int right_pwm = BASE_SPEED_PWM;
         
         unsigned char left_on_black = (ADCLeft < thresh_black_left);
         unsigned char right_on_black = (ADCRight < thresh_black_right);
         
-        // Determine current line state
-        unsigned char current_state;
+        // Strategy: RIGHT sensor tracks the line
+        // - If RIGHT sees black → good, maintain course with slight left bias
+        // - If RIGHT loses black (sees white) → turn LEFT (slow left motor)
+        // - If LEFT sees black → we're too far onto line, turn RIGHT (slow right motor)
+        // - If BOTH see black → lap marker or wide line, maintain with bias
+        
         if (left_on_black && right_on_black) {
-            current_state = LINE_BOTH;  // Both on black (lap marker or aligned)
-        } else if (left_on_black && !right_on_black) {
-            current_state = LINE_LEFT;  // Line is to the left
-            last_line_position = LINE_LEFT;  // Remember for recovery
-        } else if (!left_on_black && right_on_black) {
-            current_state = LINE_RIGHT;  // Line is to the right
-            last_line_position = LINE_RIGHT;  // Remember for recovery
-        } else {
-            current_state = LINE_LOST;  // Both on white - line lost!
-        }
-        
-        // New logic: correct rightward (power left motor) whenever either sensor sees white
-        if (!left_on_black || !right_on_black) {
-            // If either sensor sees white, correct rightward
-            left_pwm  = BASE_SPEED_PWM + STEER_DELTA_PWM;
-            right_pwm = SLOW_SPEED_PWM;
-        } else {
-            // Both sensors see black: go straight with clockwise bias
-            left_pwm  = BASE_SPEED_PWM + CLOCKWISE_BIAS_PWM;
+            // Both on black: could be lap marker or crossing wide part of line
+            // Maintain forward motion with clockwise bias
+            left_pwm = BASE_SPEED_PWM + CLOCKWISE_BIAS_PWM;
             right_pwm = BASE_SPEED_PWM;
+            last_line_position = LINE_BOTH;
+            
+        } else if (!left_on_black && right_on_black) {
+            // IDEAL: Left on white, right on black
+            // We're tracking correctly, maintain course with gentle clockwise bias
+            left_pwm = BASE_SPEED_PWM + CLOCKWISE_BIAS_PWM;
+            right_pwm = BASE_SPEED_PWM;
+            last_line_position = LINE_RIGHT;
+            
+        } else if (left_on_black && !right_on_black) {
+            // Left on black, right on white: we've drifted too far LEFT onto the line
+            // Need to turn RIGHT (slow down right motor to arc right)
+            left_pwm = BASE_SPEED_PWM;
+            right_pwm = SLOW_TURN_PWM;
+            last_line_position = LINE_LEFT;
+            
+        } else {
+            // Both on white: line is lost!
+            // Recovery: turn based on where we last saw the line
+            if (last_line_position == LINE_LEFT) {
+                // Line was on left, turn right harder to find it
+                left_pwm = BASE_SPEED_PWM + MAJOR_CORRECTION_PWM;
+                right_pwm = BASE_SPEED_PWM - MAJOR_CORRECTION_PWM;
+            } else {
+                // Line was on right (or both), turn left to find it
+                // This is the most common case - right sensor lost the line
+                left_pwm = BASE_SPEED_PWM - MINOR_CORRECTION_PWM;
+                right_pwm = BASE_SPEED_PWM + MINOR_CORRECTION_PWM;
+            }
         }
         
-        // Cap PWM limits
+        // Cap PWM to safe limits
         if (left_pwm > PWM_MAX) left_pwm = PWM_MAX;
         if (right_pwm > PWM_MAX) right_pwm = PWM_MAX;
         if (left_pwm < PWM_MIN) left_pwm = PWM_MIN;
         if (right_pwm < PWM_MIN) right_pwm = PWM_MIN;
+        
         set_motor_speeds(left_pwm, right_pwm);
 
         // Lap detection: both sensors see black AND enough time has passed
@@ -432,7 +453,7 @@ void Project7(void){
             if (delta_ticks >= MIN_LAP_TICKS) {
                 lap_count++;
                 last_lap_tick = time_ticks_200ms;
-                lap_detected_flag = 1;  // Set flag to prevent multiple triggers
+                lap_detected_flag = 1;
                 if (lap_count >= 2) {
                     state = EXIT_CENTER;
                     Time_Sequence = 0;
@@ -440,9 +461,18 @@ void Project7(void){
                 }
             }
         }
-        // Reset lap detection flag when both sensors leave the black line
+        // Reset lap detection flag after clearing the lap marker
         if (!left_on_black && !right_on_black) {
-            lap_detected_flag = 0;
+            // Both sensors back on white - debounce period
+            if (lap_detected_flag) {
+                static unsigned int lap_clear_time = 0;
+                if (lap_clear_time == 0) {
+                    lap_clear_time = time_ticks_200ms;
+                } else if ((time_ticks_200ms - lap_clear_time) >= LAP_DEBOUNCE_TICKS) {
+                    lap_detected_flag = 0;
+                    lap_clear_time = 0;
+                }
+            }
         }
         
         break;

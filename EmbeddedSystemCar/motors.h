@@ -17,6 +17,11 @@ void start_case(void);
 void run_case(void);
 void end_case(void);
 
+// Project 7 variable speed motor control
+void set_motor_speeds(unsigned int left_pwm, unsigned int right_pwm);
+void pivot_left_pwm(unsigned int speed);
+void pivot_right_pwm(unsigned int speed);
+
 
 //---------- PWM ------------//
 // PWM Functions

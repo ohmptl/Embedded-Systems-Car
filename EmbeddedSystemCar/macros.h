@@ -20,26 +20,32 @@
 #define IR_MAGIC_NUM           (750)
 
 // Project 7 tuning constants (no magic numbers)
-#define BASE_SPEED_PWM         (15000)   // nominal forward speed (increased for better momentum)
-#define TURN_SPEED_PWM         (9000)    // pivot speed
-#define SLOW_SPEED_PWM         (8000)    // speed during sharp corrections
-#define STEER_DELTA_PWM        (3500)    // differential for steering (gentler correction)
-#define LOST_LINE_DELTA_PWM    (10000)   // aggressive correction when line is lost
-#define CLOCKWISE_BIAS_PWM     (2000)    // constant bias for clockwise motion (left motor faster)
+// PWM speeds (out of 50005 period)
+#define BASE_SPEED_PWM         (12000)   // nominal forward speed for both wheels
+#define TURN_SPEED_PWM         (10000)   // pivot speed during initial turn
+#define SLOW_TURN_PWM          (9000)    // slower wheel during line follow corrections
+
+// Steering corrections - proportional control
+#define MINOR_CORRECTION_PWM   (1000)    // small adjustment when slightly off
+#define MAJOR_CORRECTION_PWM   (2500)    // larger adjustment when way off
+#define LOST_RECOVERY_PWM      (5000)    // aggressive when line is completely lost
+
+// Circle following: for clockwise, right sensor tracks line
+#define CLOCKWISE_BIAS_PWM     (500)     // slight left bias to maintain circular path
 #define PWM_MAX                (PWM1_WHEEL_PERIOD - 10)
 #define PWM_MIN                (0)
 
-// Line following states
-#define LINE_CENTER            (0)       // Both sensors on white (following center)
-#define LINE_LEFT              (1)       // Left sensor sees black
-#define LINE_RIGHT             (2)       // Right sensor sees black
-#define LINE_BOTH              (3)       // Both sensors see black (crossing or aligned)
-#define LINE_LOST              (4)       // Both sensors on white (line lost)
+// Line position tracking (for proper correction direction)
+#define LINE_NONE              (0)       // Both sensors on white (center or lost)
+#define LINE_LEFT              (1)       // Left sensor sees black (too far left)
+#define LINE_RIGHT             (2)       // Right sensor sees black (correct for clockwise)
+#define LINE_BOTH              (3)       // Both sensors see black (crossing or lap marker)
 
-// Lap detection: for a 36" diameter circle at BASE_SPEED_PWM
-// Circumference ≈ 113 inches; at ~3-4 inches/sec → ~30-40 seconds per lap
-// Use a longer minimum time between lap detections
-#define MIN_LAP_TICKS          (100)     // 100 * 0.2s = 20 seconds minimum per lap
+// Lap detection: 36" diameter circle ≈ 113" circumference
+// At 12000 PWM (~2-3 inches/sec) → ~40-50 seconds per lap
+// Set minimum to 30 seconds to avoid false triggers
+#define MIN_LAP_TICKS          (150)     // 150 * 0.2s = 30 seconds minimum per lap
+#define LAP_DEBOUNCE_TICKS     (5)       // 1 second to clear lap marker
 
 // Exit into center timing (rough)
 #define EXIT_PIVOT_TICKS       (10)      // 2.0 seconds pivot
