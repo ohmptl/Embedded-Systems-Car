@@ -21,19 +21,17 @@
 
 // Project 7 tuning constants (no magic numbers)
 // PWM speeds (out of 50005 period)
-#define BASE_SPEED_PWM         (12000)   // nominal forward speed for both wheels
+#define BASE_SPEED_PWM         (10000)   // Use same as reference PWM1_SLOW
 #define TURN_SPEED_PWM         (10000)   // pivot speed during initial turn
-#define SLOW_TURN_PWM          (9000)    // slower wheel during line follow corrections
+#define SLOW_TURN_PWM          (10000)   // same fixed speed
 
-// Steering corrections - proportional control
-#define MINOR_CORRECTION_PWM   (2000)    // small adjustment when slightly off (increased)
-#define MAJOR_CORRECTION_PWM   (4000)    // larger adjustment when way off (increased)
-#define RECOVERY_TURN_PWM      (11000)   // one wheel during recovery pivot
-#define RECOVERY_STOP_TICKS    (2)       // 0.4 seconds - brief pause when lost
-#define RECOVERY_PIVOT_TICKS   (5)       // 1.0 seconds - pivot to find line
+// Discrete steering - ON/OFF only (like reference project)
+#define STEER_MODE_DISCRETE    (1)       // Use discrete ON/OFF steering
 
-// Circle following: for clockwise, right sensor tracks line
-#define CLOCKWISE_BIAS_PWM     (0)       // NO BIAS - let sensor feedback control steering
+// Circle following: direction preference
+#define FOLLOW_DIR_CW          ('R')     // Clockwise - right sensor focus
+#define FOLLOW_DIR_CCW         ('L')     // Counter-clockwise - left sensor focus
+
 #define PWM_MAX                (PWM1_WHEEL_PERIOD - 10)
 #define PWM_MIN                (0)
 
