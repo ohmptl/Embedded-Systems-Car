@@ -398,45 +398,35 @@ void Project7(void){
         unsigned char right_on_black = (ADCRight < thresh_black_right);
         
         // Strategy: RIGHT sensor tracks the line
-        // - If RIGHT sees black → good, maintain course with slight left bias
-        // - If RIGHT loses black (sees white) → turn LEFT (slow left motor)
-        // - If LEFT sees black → we're too far onto line, turn RIGHT (slow right motor)
-        // - If BOTH see black → lap marker or wide line, maintain with bias
+        // NO BIAS - pure feedback control based on sensor readings
         
         if (left_on_black && right_on_black) {
             // Both on black: could be lap marker or crossing wide part of line
-            // Maintain forward motion with clockwise bias
-            left_pwm = BASE_SPEED_PWM + CLOCKWISE_BIAS_PWM;
+            // Go straight at base speed - NO BIAS
+            left_pwm = BASE_SPEED_PWM;
             right_pwm = BASE_SPEED_PWM;
             last_line_position = LINE_BOTH;
             
         } else if (!left_on_black && right_on_black) {
             // IDEAL: Left on white, right on black
-            // We're tracking correctly, maintain course with gentle clockwise bias
-            left_pwm = BASE_SPEED_PWM + CLOCKWISE_BIAS_PWM;
+            // Perfect tracking! Go straight at base speed - NO BIAS
+            left_pwm = BASE_SPEED_PWM;
             right_pwm = BASE_SPEED_PWM;
             last_line_position = LINE_RIGHT;
             
         } else if (left_on_black && !right_on_black) {
             // Left on black, right on white: we've drifted too far LEFT onto the line
-            // Need to turn RIGHT (slow down right motor to arc right)
-            left_pwm = BASE_SPEED_PWM;
-            right_pwm = SLOW_TURN_PWM;
+            // Need to turn RIGHT aggressively (slow down right motor)
+            left_pwm = BASE_SPEED_PWM + MINOR_CORRECTION_PWM;
+            right_pwm = BASE_SPEED_PWM - MINOR_CORRECTION_PWM;
             last_line_position = LINE_LEFT;
             
         } else {
-            // Both on white: line is lost!
-            // Recovery: turn based on where we last saw the line
-            if (last_line_position == LINE_LEFT) {
-                // Line was on left, turn right harder to find it
-                left_pwm = BASE_SPEED_PWM + MAJOR_CORRECTION_PWM;
-                right_pwm = BASE_SPEED_PWM - MAJOR_CORRECTION_PWM;
-            } else {
-                // Line was on right (or both), turn left to find it
-                // This is the most common case - right sensor lost the line
-                left_pwm = BASE_SPEED_PWM - MINOR_CORRECTION_PWM;
-                right_pwm = BASE_SPEED_PWM + MINOR_CORRECTION_PWM;
-            }
+            // Both on white: line is COMPLETELY LOST!
+            // Enter recovery mode - stop and pivot to find line
+            state = RECOVERY;
+            Time_Sequence = 0;
+            PWM1_BOTH_OFF();
         }
         
         // Cap PWM to safe limits
@@ -477,6 +467,40 @@ void Project7(void){
         
         break;
     }
+
+    case RECOVERY:
+        strcpy(display_line[0], " RECOVERY ");
+        strcpy(display_line[1], " FIND LINE");
+        IR = ON;
+        display_changed = TRUE;
+        
+        if (Time_Sequence < RECOVERY_STOP_TICKS) {
+            // Brief stop to stabilize
+            PWM1_BOTH_OFF();
+        } else if (Time_Sequence < (RECOVERY_STOP_TICKS + RECOVERY_PIVOT_TICKS)) {
+            // Pivot to find the line based on where we last saw it
+            if (last_line_position == LINE_LEFT) {
+                // Line was on left, pivot RIGHT to find it
+                pivot_right_pwm(RECOVERY_TURN_PWM);
+            } else {
+                // Line was on right (most common), pivot LEFT to find it
+                pivot_left_pwm(RECOVERY_TURN_PWM);
+            }
+            
+            // Check if we found the line during pivot
+            unsigned char left_on_black = (ADCLeft < thresh_black_left);
+            unsigned char right_on_black = (ADCRight < thresh_black_right);
+            if (left_on_black || right_on_black) {
+                // Found the line! Return to circling
+                state = CIRCLING;
+                Time_Sequence = 0;
+            }
+        } else {
+            // Recovery timeout - return to circling and try again
+            state = CIRCLING;
+            Time_Sequence = 0;
+        }
+        break;
 
     case EXIT_CENTER:
         strcpy(display_line[0], "EXIT CTR  ");

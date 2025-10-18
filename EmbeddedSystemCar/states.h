@@ -44,6 +44,7 @@
 #define INTERCEPT               ('X')  // Drive forward until intercept line
 #define TURNING                 ('t')  // Pivot to align with circle
 #define CIRCLING                ('C')  // Follow the circle
+#define RECOVERY                ('R')  // Recovery mode when line completely lost
 #define EXIT_CENTER             ('E')  // Turn into circle center
 #define STOPPED                 ('S')  // Final stop
 
