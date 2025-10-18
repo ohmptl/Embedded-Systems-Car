@@ -26,11 +26,13 @@
 #define PWM_MAX                (PWM1_WHEEL_PERIOD - 10)
 #define PWM_MIN                (0)
 
-// Lap detection: require at least N ticks (200ms each) between lap marks
-#define MIN_LAP_TICKS          (25)      // 25 * 0.2s = 5 seconds minimum per lap
+// Lap detection: for a 36" diameter circle at BASE_SPEED_PWM
+// Circumference ≈ 113 inches; at ~3-4 inches/sec → ~30-40 seconds per lap
+// Use a longer minimum time between lap detections
+#define MIN_LAP_TICKS          (100)     // 100 * 0.2s = 20 seconds minimum per lap
 
 // Exit into center timing (rough)
-#define EXIT_PIVOT_TICKS       (5)       // 1.0 seconds pivot
-#define EXIT_DRIVE_TICKS       (5)       // 1.0 seconds forward
+#define EXIT_PIVOT_TICKS       (10)      // 2.0 seconds pivot
+#define EXIT_DRIVE_TICKS       (10)      // 2.0 seconds forward
 
 #endif /* MACROS_H_ */

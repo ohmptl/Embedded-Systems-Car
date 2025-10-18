@@ -65,9 +65,8 @@ unsigned int secTime;
 volatile unsigned int time_ticks_200ms;         // 0.2s increments
 volatile unsigned char timer_running;           // 1: counting; 0: stopped
 volatile unsigned char sw1_press_event;         // SW1 press detected
+volatile unsigned char sw2_press_event;         // SW2 press detected (for calibration confirmation)
 
-unsigned int adc_ambient_left;
-unsigned int adc_ambient_right;
 unsigned int adc_white_left;
 unsigned int adc_white_right;
 unsigned int adc_black_left;
@@ -75,11 +74,10 @@ unsigned int adc_black_right;
 
 unsigned int thresh_black_left;
 unsigned int thresh_black_right;
-unsigned int thresh_white_left;
-unsigned int thresh_white_right;
 
 unsigned int lap_count;
 unsigned int last_lap_tick;
+unsigned char lap_detected_flag;                // debounce for lap detection
 
 //------------------------------------------------------------------------------
 
@@ -269,40 +267,30 @@ void Project7(void){
     switch (state) {
     case IDLE:
         strcpy(display_line[0], "   IDLE   ");
-        strcpy(display_line[1], " SW1: Cal ");
+        strcpy(display_line[1], " SW1:Start");
         strcpy(display_line[2], " SW2: IR  ");
         PWM1_BOTH_OFF();
         display_changed = TRUE;
         timer_running = 0;
         if (sw1_press_event) {
             sw1_press_event = 0;
-            state = CAL_AMBIENT;
-            Time_Sequence = 0;
-            IR = OFF;
-        }
-        break;
-
-    case CAL_AMBIENT:
-        strcpy(display_line[0], " CAL AMB  ");
-        strcpy(display_line[1], "IR OFF..  ");
-        PWM1_BOTH_OFF();
-        IR = OFF;
-        display_changed = TRUE;
-        if (Time_Sequence >= 10) { // 2s to sample
-            adc_ambient_left = ADCLeft;
-            adc_ambient_right = ADCRight;
             state = CAL_WHITE;
             Time_Sequence = 0;
+            IR = ON;  // Turn IR on for calibration
         }
         break;
 
     case CAL_WHITE:
         strcpy(display_line[0], " CAL WHT  ");
-        strcpy(display_line[1], "IR ON..   ");
-        IR = ON;
+        strcpy(display_line[1], " SW2:Next ");
+        // ADC values displayed on lines 2&3 by ADC ISR
         PWM1_BOTH_OFF();
+        IR = ON;
         display_changed = TRUE;
-        if (Time_Sequence >= 10) { // 2s on white
+        
+        // Wait for SW2 press to confirm white calibration
+        if (sw2_press_event) {
+            sw2_press_event = 0;
             adc_white_left = ADCLeft;
             adc_white_right = ADCRight;
             state = CAL_BLACK;
@@ -312,33 +300,52 @@ void Project7(void){
 
     case CAL_BLACK:
         strcpy(display_line[0], " CAL BLK  ");
-        strcpy(display_line[1], "IR ON..   ");
+        strcpy(display_line[1], " SW2:Next ");
+        // ADC values displayed on lines 2&3 by ADC ISR
         IR = ON;
         PWM1_BOTH_OFF();
         display_changed = TRUE;
-        if (Time_Sequence >= 10) { // 2s on black
+        
+        // Wait for SW2 press to confirm black calibration
+        if (sw2_press_event) {
+            sw2_press_event = 0;
             adc_black_left = ADCLeft;
             adc_black_right = ADCRight;
-            // Compute thresholds: midpoint
+            // Compute thresholds: midpoint between white and black
             thresh_black_left = (adc_black_left + adc_white_left) / 2;
             thresh_black_right = (adc_black_right + adc_white_right) / 2;
+            state = WAIT;
+            Time_Sequence = 0;
+        }
+        break;
+
+    case WAIT:
+        strcpy(display_line[0], "   WAIT   ");
+        strcpy(display_line[1], "Ready 3s..");
+        PWM1_BOTH_OFF();
+        IR = ON;
+        display_changed = TRUE;
+        
+        // Wait 3 seconds before starting
+        if (Time_Sequence >= 15) {  // 15 * 0.2s = 3 seconds
             state = INTERCEPT;
             Time_Sequence = 0;
             time_ticks_200ms = 0;
             timer_running = 1;
             lap_count = 0;
             last_lap_tick = 0;
+            lap_detected_flag = 0;
         }
         break;
 
     case INTERCEPT:
         strcpy(display_line[0], "INTERCEPT ");
         strcpy(display_line[1], "          ");
-        // Display ADC on line 2 (handled by ADC ISR when not in calibration)
+        // Display ADC on line 2 & 3 (handled by ADC ISR)
         IR = ON;
         set_motor_speeds(BASE_SPEED_PWM, BASE_SPEED_PWM);
         display_changed = TRUE;
-        // Detect black line (both sensors)
+        // Detect black line (both sensors below threshold)
         if (ADCLeft < thresh_black_left && ADCRight < thresh_black_right) {
             state = TURNING;
             Time_Sequence = 0;
@@ -351,13 +358,14 @@ void Project7(void){
         strcpy(display_line[1], "          ");
         IR = ON;
         display_changed = TRUE;
-        // Pivot left until black line detected again
+        // Pivot left until both sensors see black line again
         pivot_left_pwm(TURN_SPEED_PWM);
         if ((ADCLeft < thresh_black_left) && (ADCRight < thresh_black_right)) {
             state = CIRCLING;
             Time_Sequence = 0;
             lap_count = 0;
             last_lap_tick = 0;
+            lap_detected_flag = 0;
         }
         break;
 
@@ -371,8 +379,8 @@ void Project7(void){
         display_line[1][4] = ':';
         display_line[1][5] = ' ';
         display_line[1][6] = lap_count + '0';
-        display_line[1][7] = ' ';
-        display_line[1][8] = ' ';
+        display_line[1][7] = '/';
+        display_line[1][8] = '2';
         display_line[1][9] = ' ';
         IR = ON;
         display_changed = TRUE;
@@ -380,15 +388,21 @@ void Project7(void){
         // Simple steering: if left sees black -> steer right; if right sees black -> steer left
         unsigned int left_pwm = BASE_SPEED_PWM;
         unsigned int right_pwm = BASE_SPEED_PWM;
-        if (ADCLeft < thresh_black_left) {
-            // left on black => steer right: left faster, right slower
+        
+        unsigned char left_on_black = (ADCLeft < thresh_black_left);
+        unsigned char right_on_black = (ADCRight < thresh_black_right);
+        
+        if (left_on_black && !right_on_black) {
+            // left on black, right on white => steer right: left faster, right slower
             left_pwm += STEER_DELTA_PWM;
             right_pwm -= STEER_DELTA_PWM;
-        } else if (ADCRight < thresh_black_right) {
-            // right on black => steer left: right faster, left slower
+        } else if (right_on_black && !left_on_black) {
+            // right on black, left on white => steer left: right faster, left slower
             right_pwm += STEER_DELTA_PWM;
             left_pwm -= STEER_DELTA_PWM;
         }
+        // If both on black or both on white, go straight
+        
         // Cap limits
         if (left_pwm > PWM_MAX) left_pwm = PWM_MAX;
         if (right_pwm > PWM_MAX) right_pwm = PWM_MAX;
@@ -396,12 +410,14 @@ void Project7(void){
         if (right_pwm < PWM_MIN) right_pwm = PWM_MIN;
         set_motor_speeds(left_pwm, right_pwm);
 
-        // Detect both sensors black => lap marker
-        if ((ADCLeft < thresh_black_left) && (ADCRight < thresh_black_right)) {
+        // Lap detection: both sensors see black AND enough time has passed
+        if (left_on_black && right_on_black && !lap_detected_flag) {
             unsigned int delta_ticks = time_ticks_200ms - last_lap_tick;
             if (delta_ticks >= MIN_LAP_TICKS) {
                 lap_count++;
                 last_lap_tick = time_ticks_200ms;
+                lap_detected_flag = 1;  // Set flag to prevent multiple triggers
+                
                 if (lap_count >= 2) {
                     state = EXIT_CENTER;
                     Time_Sequence = 0;
@@ -409,6 +425,12 @@ void Project7(void){
                 }
             }
         }
+        
+        // Reset lap detection flag when both sensors leave the black line
+        if (!left_on_black && !right_on_black) {
+            lap_detected_flag = 0;
+        }
+        
         break;
     }
 

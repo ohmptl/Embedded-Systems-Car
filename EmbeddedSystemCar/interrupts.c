@@ -39,6 +39,7 @@ extern volatile unsigned char timer_running;      // 1 when counting, 0 when sto
 
 // SW1 press event flag (Project 7)
 extern volatile unsigned char sw1_press_event;
+extern volatile unsigned char sw2_press_event;
 
 // ADC results used by main/state machine
 extern volatile unsigned int ADCLeft;
@@ -188,22 +189,17 @@ __interrupt void TIMER0_B1_ISR(void){
             //            update_display =TRUE;
             //            backlight_status = OFF;
             //        }
+            
+            // Project 7: SW2 press event (for calibration confirmation)
+            sw2_press_event = 1;
+            
+            // Legacy IR toggle (still works outside calibration)
             if(IR == OFF){
                 IRChange = TRUE;
-                strcpy(display_line[0], "  IR ON   ");
-                strcpy(display_line[1], "          ");
-                strcpy(display_line[2], "          ");
-                strcpy(display_line[3], "          ");
-                update_display = TRUE;
                 IR = ON;
             }
             else{// IR_status = ON
                 IRChange = TRUE;
-                strcpy(display_line[0], "  IR OFF  ");
-                strcpy(display_line[1], "          ");
-                strcpy(display_line[2], "          ");
-                strcpy(display_line[3], "          ");
-                update_display =TRUE;
                 IR = OFF;
             }
 
@@ -248,9 +244,8 @@ __interrupt void TIMER0_B1_ISR(void){
                 ADCLeft = ADCMEM0;                       // Move result into Global Values
                 ADCLeft = ADCLeft >> 2;                   // Divide the result by 4
 
-                // Display ADC on line 2 only if not in calibration/special states
-                if(state != WAIT2 && state != BLACKLINE &&
-                   state != CAL_AMBIENT && state != CAL_WHITE && state != CAL_BLACK){
+                // Display ADC on line 2 during calibration and normal operation
+                if(state != WAIT2 && state != BLACKLINE){
                     HEXtoBCD(ADCLeft);
                     dispPrint(adc_char,2);
                 }
@@ -263,10 +258,10 @@ __interrupt void TIMER0_B1_ISR(void){
 
                 ADCRight = ADCMEM0;                      // Move result into Global Values
                 ADCRight = ADCRight >> 2;                 // Divide the result by 4
-                // Don't overwrite line 3 (reserved for lap/info in CIRCLING)
+                
+                // Display on line 3 during calibration and normal operation
                 if(state != WAIT2 && state != BLACKLINE &&
-                   state != CAL_AMBIENT && state != CAL_WHITE && state != CAL_BLACK &&
-                   state != CIRCLING){
+                   state != CIRCLING){  // Don't overwrite "Lap: X/2" in CIRCLING
                     HEXtoBCD(ADCRight);
                     dispPrint(adc_char,3);
                 }
