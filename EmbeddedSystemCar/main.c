@@ -367,7 +367,7 @@ void Project7(void){
             lap_count = 0;
             last_lap_tick = 0;
             lap_detected_flag = 0;
-            last_line_position = LINE_CENTER;  // Initialize line position tracking
+            last_line_position = LINE_RIGHT;  // For clockwise: line should be on RIGHT
         }
         break;
 
@@ -409,43 +409,49 @@ void Project7(void){
         }
         
         // Apply steering based on line state
+        // CLOCKWISE motion: Line should be on RIGHT side (inside of circle)
+        // Apply constant CLOCKWISE_BIAS to all states to help hug the line
         switch (current_state) {
             case LINE_LEFT:
-                // Left sensor on black => line is under left side
-                // Need to steer RIGHT (away from black): speed up left, slow down right
-                left_pwm = BASE_SPEED_PWM + STEER_DELTA_PWM;
-                right_pwm = SLOW_SPEED_PWM;  // Slow down right wheel for sharp turn
+                // Left sensor sees black => car drifted LEFT (too far from center)
+                // Need to steer RIGHT: push RIGHT motor harder, slow down LEFT
+                right_pwm = BASE_SPEED_PWM + STEER_DELTA_PWM;  // Push right motor
+                left_pwm = SLOW_SPEED_PWM;                      // Slow down left
                 break;
                 
             case LINE_RIGHT:
-                // Right sensor on black => line is under right side
-                // Need to steer LEFT (away from black): speed up right, slow down left
-                right_pwm = BASE_SPEED_PWM + STEER_DELTA_PWM;
-                left_pwm = SLOW_SPEED_PWM;  // Slow down left wheel for sharp turn
+                // Right sensor sees black => line is where it should be (good!)
+                // This is the TARGET state for clockwise motion
+                // Maintain gentle left push to stay on course, but not too aggressive
+                left_pwm = BASE_SPEED_PWM + CLOCKWISE_BIAS_PWM;   // Gentle left push
+                right_pwm = BASE_SPEED_PWM - CLOCKWISE_BIAS_PWM;   // Slightly slower right
                 break;
                 
             case LINE_BOTH:
-                // Both on black: could be crossing line or perfectly aligned
-                // Go straight at base speed (this is good!)
-                left_pwm = BASE_SPEED_PWM;
+                // Both on black: crossing line marker (lap detection)
+                // Maintain clockwise bias: left motor slightly faster
+                left_pwm = BASE_SPEED_PWM + CLOCKWISE_BIAS_PWM;
                 right_pwm = BASE_SPEED_PWM;
                 break;
                 
             case LINE_LOST:
-                // Both on white - line lost! Use last known position to recover
-                // Apply AGGRESSIVE correction in the direction of last known line
-                if (last_line_position == LINE_LEFT) {
-                    // Line was on left, we drifted right -> turn LEFT sharply
-                    left_pwm = SLOW_SPEED_PWM;
-                    right_pwm = BASE_SPEED_PWM + LOST_LINE_DELTA_PWM;
-                } else if (last_line_position == LINE_RIGHT) {
-                    // Line was on right, we drifted left -> turn RIGHT sharply
+                // Both on white - line lost!
+                // For CLOCKWISE: Default bias is to push LEFT motor (curve right)
+                // This naturally brings us back to the line on the right
+                if (last_line_position == LINE_RIGHT) {
+                    // Line was on right (normal), we drifted LEFT away from it
+                    // Push LEFT motor HARD to curve back right toward line
+                    left_pwm = BASE_SPEED_PWM + LOST_LINE_DELTA_PWM;  // Aggressive left
                     right_pwm = SLOW_SPEED_PWM;
-                    left_pwm = BASE_SPEED_PWM + LOST_LINE_DELTA_PWM;
+                } else if (last_line_position == LINE_LEFT) {
+                    // Line was on left (abnormal), we drifted RIGHT too far
+                    // Push RIGHT motor to curve back left
+                    right_pwm = BASE_SPEED_PWM + LOST_LINE_DELTA_PWM;
+                    left_pwm = SLOW_SPEED_PWM;
                 } else {
-                    // Unknown last position (shouldn't happen), try slight left turn
-                    left_pwm = BASE_SPEED_PWM - STEER_DELTA_PWM;
-                    right_pwm = BASE_SPEED_PWM + STEER_DELTA_PWM;
+                    // Unknown - default clockwise bias: push left motor
+                    left_pwm = BASE_SPEED_PWM + LOST_LINE_DELTA_PWM;
+                    right_pwm = BASE_SPEED_PWM;
                 }
                 break;
                 
