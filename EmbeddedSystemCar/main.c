@@ -414,16 +414,16 @@ void Project7(void){
         switch (current_state) {
             case LINE_LEFT:
                 // Left sensor sees black => car drifted LEFT
-                // Per request: push LEFT motor to correct (increase LEFT, reduce RIGHT)
-                left_pwm  = BASE_SPEED_PWM + STEER_DELTA_PWM;  // Push left motor
-                right_pwm = SLOW_SPEED_PWM;                    // Slow down right
+                // Inverted corrections: push RIGHT motor (increase RIGHT, reduce LEFT)
+                right_pwm = BASE_SPEED_PWM + STEER_DELTA_PWM;  // Push right motor
+                left_pwm  = SLOW_SPEED_PWM;                    // Slow down left
                 break;
 
             case LINE_RIGHT:
                 // Right sensor sees black => car drifted RIGHT
-                // Per request: push RIGHT motor to correct (increase RIGHT, reduce LEFT)
-                right_pwm = BASE_SPEED_PWM + STEER_DELTA_PWM;  // Push right motor
-                left_pwm  = SLOW_SPEED_PWM;                    // Slow down left
+                // Inverted corrections: push LEFT motor (increase LEFT, reduce RIGHT)
+                left_pwm  = BASE_SPEED_PWM + STEER_DELTA_PWM;  // Push left motor
+                right_pwm = SLOW_SPEED_PWM;                    // Slow down right
                 break;
 
             case LINE_BOTH:
