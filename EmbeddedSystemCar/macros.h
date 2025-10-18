@@ -35,6 +35,18 @@
 #define PWM_MAX                (PWM1_WHEEL_PERIOD - 10)
 #define PWM_MIN                (0)
 
+// 0.2s tick timing (TimerB0 ISR increments a counter every 200ms)
+#define TICKS_PER_SECOND        (5u)      // 5 ticks per second (0.2s per tick)
+#define TICK_PERIOD_MS          (200u)
+
+// Latching confirm while aligning on the circle (avoid false triggers)
+#define ALIGN_CONFIRM_SECONDS   (1u)      // must see black for 1s to latch
+
+// Lap timing configuration (mapped from thumbwheel ADC)
+#define LAPS_TARGET             (2u)      // exactly two laps
+#define LAP_SECONDS_MIN         (20u)     // min allowable lap seconds
+#define LAP_SECONDS_MAX         (60u)     // max allowable lap seconds
+
 // Line position tracking (for proper correction direction)
 #define LINE_NONE              (0)       // Both sensors on white (center or lost)
 #define LINE_LEFT              (1)       // Left sensor sees black (too far left)

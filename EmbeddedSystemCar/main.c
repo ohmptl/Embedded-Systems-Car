@@ -32,6 +32,7 @@ extern unsigned int IR;
 extern unsigned int IRChange;
 extern volatile unsigned int ADCLeft;
 extern volatile unsigned int ADCRight;
+extern volatile unsigned int ADCThumb;
 unsigned int test_value;
 char chosen_direction;
 char change;
@@ -75,9 +76,10 @@ unsigned int adc_black_right;
 unsigned int thresh_black_left;
 unsigned int thresh_black_right;
 
-unsigned int lap_count;
-unsigned int last_lap_tick;
-unsigned char lap_detected_flag;                // debounce for lap detection
+// Lap timing (reference-style): exactly two laps based on time
+volatile unsigned int lap_ticks_target;  // ticks per lap, mapped from thumbwheel
+volatile unsigned int lap_ticks_accum;   // accumulated ticks in current lap
+unsigned int laps_completed;             // number of laps completed
 unsigned char follow_dir;                       // 'L' for CCW, 'R' for CW (like reference)
 
 //------------------------------------------------------------------------------
@@ -333,9 +335,9 @@ void Project7(void){
             Time_Sequence = 0;
             time_ticks_200ms = 0;
             timer_running = 1;
-            lap_count = 0;
-            last_lap_tick = 0;
-            lap_detected_flag = 0;
+            // Initialize lap timing targets from thumbwheel
+            laps_completed = 0;
+            lap_ticks_accum = 0;
         }
         break;
 
@@ -344,13 +346,20 @@ void Project7(void){
         strcpy(display_line[1], "          ");
         // Display ADC on line 2 & 3 (handled by ADC ISR)
         IR = ON;
-        set_motor_speeds(BASE_SPEED_PWM, BASE_SPEED_PWM);
+        // Drive straight forward using both motors ON (discrete mode)
+        PWM1_BOTH_FWD();
         display_changed = TRUE;
         // Detect black line (both sensors below threshold)
         if (ADCLeft < thresh_black_left && ADCRight < thresh_black_right) {
-            state = TURNING;
+            // Confirm latch for some ticks before transitioning
+            if (Time_Sequence >= (ALIGN_CONFIRM_SECONDS * TICKS_PER_SECOND)){
+                state = TURNING;
+                Time_Sequence = 0;
+                PWM1_BOTH_OFF();
+            }
+        } else {
+            // Reset confirm timer if line not continuously detected
             Time_Sequence = 0;
-            PWM1_BOTH_OFF();
         }
         break;
 
@@ -364,10 +373,13 @@ void Project7(void){
         if ((ADCLeft < thresh_black_left) && (ADCRight < thresh_black_right)) {
             state = CIRCLING;
             Time_Sequence = 0;
-            lap_count = 0;
-            last_lap_tick = 0;
-            lap_detected_flag = 0;
             follow_dir = FOLLOW_DIR_CW;  // Set clockwise direction
+            // Map thumbwheel to lap target seconds and convert to ticks
+            unsigned int span = (LAP_SECONDS_MAX - LAP_SECONDS_MIN);
+            unsigned int secs = LAP_SECONDS_MIN + (ADCThumb * span) / 1023u;
+            lap_ticks_target = secs * TICKS_PER_SECOND;
+            laps_completed = 0;
+            lap_ticks_accum = 0;
         }
         break;
 
@@ -424,31 +436,24 @@ void Project7(void){
             }
         }
 
-        // Lap detection: both sensors see black AND enough time has passed
-        if (left_on_black && right_on_black && !lap_detected_flag) {
-            unsigned int delta_ticks = time_ticks_200ms - last_lap_tick;
-            if (delta_ticks >= MIN_LAP_TICKS) {
-                lap_count++;
-                last_lap_tick = time_ticks_200ms;
-                lap_detected_flag = 1;
-                if (lap_count >= 2) {
-                    state = EXIT_CENTER;
-                    Time_Sequence = 0;
-                    PWM1_BOTH_OFF();
-                }
-            }
+        // Time-based lap counting (reference style)
+        // Accumulate 0.2s clock ticks into current lap
+        static unsigned int last_clock = 0;
+        if (Time_Sequence == 0){
+            last_clock = time_ticks_200ms; // sync on state entry
         }
-        // Reset lap detection flag after clearing the lap marker
-        if (!left_on_black && !right_on_black) {
-            // Both sensors back on white - debounce period
-            if (lap_detected_flag) {
-                static unsigned int lap_clear_time = 0;
-                if (lap_clear_time == 0) {
-                    lap_clear_time = time_ticks_200ms;
-                } else if ((time_ticks_200ms - lap_clear_time) >= LAP_DEBOUNCE_TICKS) {
-                    lap_detected_flag = 0;
-                    lap_clear_time = 0;
-                }
+        if (time_ticks_200ms != last_clock){
+            lap_ticks_accum += (time_ticks_200ms - last_clock);
+            last_clock = time_ticks_200ms;
+        }
+
+        if (lap_ticks_accum >= lap_ticks_target){
+            laps_completed++;
+            lap_ticks_accum = 0;
+            if (laps_completed >= LAPS_TARGET){
+                state = EXIT_CENTER;  // exactly two laps
+                Time_Sequence = 0;
+                PWM1_BOTH_OFF();
             }
         }
         
