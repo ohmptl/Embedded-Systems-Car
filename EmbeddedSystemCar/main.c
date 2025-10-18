@@ -408,51 +408,21 @@ void Project7(void){
             current_state = LINE_LOST;  // Both on white - line lost!
         }
         
-        // Apply steering based on line state
-        // CLOCKWISE motion: Line should be on RIGHT side (inside of circle)
-        // Apply constant CLOCKWISE_BIAS to help hug the line
+        // Always correct rightward for clockwise motion
         switch (current_state) {
             case LINE_LEFT:
-                // Left sensor sees black => car drifted LEFT
-                // Inverted corrections: push RIGHT motor (increase RIGHT, reduce LEFT)
-                right_pwm = BASE_SPEED_PWM + STEER_DELTA_PWM;  // Push right motor
-                left_pwm  = SLOW_SPEED_PWM;                    // Slow down left
-                break;
-
             case LINE_RIGHT:
-                // Right sensor sees black => car drifted RIGHT
-                // Inverted corrections: push LEFT motor (increase LEFT, reduce RIGHT)
-                left_pwm  = BASE_SPEED_PWM + STEER_DELTA_PWM;  // Push left motor
-                right_pwm = SLOW_SPEED_PWM;                    // Slow down right
+            case LINE_LOST:
+                // Any correction: boost left motor, slow right motor
+                left_pwm  = BASE_SPEED_PWM + STEER_DELTA_PWM;
+                right_pwm = SLOW_SPEED_PWM;
                 break;
-
             case LINE_BOTH:
-                // Both on black: crossing line marker (lap detection)
-                // Maintain clockwise bias: left motor slightly faster
+                // On line: maintain clockwise bias
                 left_pwm  = BASE_SPEED_PWM + CLOCKWISE_BIAS_PWM;
                 right_pwm = BASE_SPEED_PWM;
                 break;
-
-            case LINE_LOST:
-                // Both on white - line lost!
-                // Favor clockwise recovery by biasing LEFT motor
-                if (last_line_position == LINE_RIGHT) {
-                    // Last seen on right (normal) -> curve right to reacquire
-                    left_pwm  = BASE_SPEED_PWM + LOST_LINE_DELTA_PWM;
-                    right_pwm = SLOW_SPEED_PWM;
-                } else if (last_line_position == LINE_LEFT) {
-                    // Last seen on left -> curve left to reacquire per same-side push rule
-                    right_pwm = BASE_SPEED_PWM + LOST_LINE_DELTA_PWM;
-                    left_pwm  = SLOW_SPEED_PWM;
-                } else {
-                    // Unknown - default clockwise bias
-                    left_pwm  = BASE_SPEED_PWM + CLOCKWISE_BIAS_PWM + STEER_DELTA_PWM;
-                    right_pwm = BASE_SPEED_PWM - CLOCKWISE_BIAS_PWM;
-                }
-                break;
-                
             default:
-                // Safety: go straight if unknown state
                 left_pwm = BASE_SPEED_PWM;
                 right_pwm = BASE_SPEED_PWM;
                 break;
@@ -472,7 +442,6 @@ void Project7(void){
                 lap_count++;
                 last_lap_tick = time_ticks_200ms;
                 lap_detected_flag = 1;  // Set flag to prevent multiple triggers
-                
                 if (lap_count >= 2) {
                     state = EXIT_CENTER;
                     Time_Sequence = 0;
@@ -480,7 +449,6 @@ void Project7(void){
                 }
             }
         }
-        
         // Reset lap detection flag when both sensors leave the black line
         if (!left_on_black && !right_on_black) {
             lap_detected_flag = 0;

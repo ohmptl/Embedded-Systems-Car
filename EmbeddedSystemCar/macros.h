@@ -23,7 +23,7 @@
 #define BASE_SPEED_PWM         (15000)   // nominal forward speed (increased for better momentum)
 #define TURN_SPEED_PWM         (9000)    // pivot speed
 #define SLOW_SPEED_PWM         (8000)    // speed during sharp corrections
-#define STEER_DELTA_PWM        (6000)    // differential added/subtracted for steering (increased)
+#define STEER_DELTA_PWM        (3500)    // differential for steering (gentler correction)
 #define LOST_LINE_DELTA_PWM    (10000)   // aggressive correction when line is lost
 #define CLOCKWISE_BIAS_PWM     (2000)    // constant bias for clockwise motion (left motor faster)
 #define PWM_MAX                (PWM1_WHEEL_PERIOD - 10)
