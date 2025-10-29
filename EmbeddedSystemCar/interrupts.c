@@ -19,6 +19,7 @@
 #include  "switch.h"
 #include  "ADC.h"
 #include  "IR.h"
+#include  "serial.h"
 #include  <string.h>
 #include  <stdio.h>
 
@@ -46,7 +47,7 @@ extern volatile unsigned int ADCLeft;
 extern volatile unsigned int ADCRight;
 extern volatile unsigned int ADCThumb;
 
-extern char state;
+extern unsigned char state;
 extern char adc_char[10];
 
 // IR flags used across modules
@@ -55,6 +56,45 @@ extern unsigned int IRChange;
 
 // Local ADC channel index for ISR rotation
 static volatile unsigned int ADCChannel = 0;
+
+
+
+
+//------------------------------------------------------------------------------
+// Serial Communication
+//------------------------------------------------------------------------------
+#pragma vector = EUSCI_A0_VECTOR
+__interrupt void eUSCI_A0_ISR(void){
+    switch(__even_in_range(UCA0IV,0x08)){
+    case 0:
+        break;
+    case 2: // RXIFG
+        Serial_HandleUCA0Rx(UCA0RXBUF);
+        break;
+    case 4: // TXIFG (not used, fall through)
+    default:
+        break;
+    }
+}
+
+#pragma vector = EUSCI_A1_VECTOR
+__interrupt void eUSCI_A1_ISR(void){
+    switch(__even_in_range(UCA1IV,0x08)){
+    case 0:
+        break;
+    case 2: // RXIFG
+        Serial_HandleUCA1Rx(UCA1RXBUF);
+        break;
+    case 4: // TXIFG (unused here)
+    default:
+        break;
+    }
+}
+
+
+
+
+
 
 // Timers
 #pragma vector = TIMER0_B0_VECTOR

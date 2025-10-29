@@ -11,6 +11,7 @@
 #include "macros.h"
 #include "init.h"
 #include "system.h"
+#include "switch.h"
 
 extern char display_line[4][11];
 extern char *display[4];
