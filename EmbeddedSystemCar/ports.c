@@ -84,8 +84,10 @@ void Init_Port1(void){
 
     P1SEL0 |= UCA0TXD; // UCA0TXD pin
     P1SEL1 &= ~UCA0TXD; // UCA0TXD pin
+    P1DIR  |= UCA0TXD;  // TXD as output
     P1SEL0 |= UCA0RXD; // UCA0RXD pin
     P1SEL1 &= ~UCA0RXD; // UCA0RXD pin
+    P1DIR  &= ~UCA0RXD; // RXD as input
 }
 
 
@@ -218,9 +220,11 @@ void Init_Port4(void){            // Configure PORT 4
 
     P4SEL0 |= UCA1RXD; 
     P4SEL1 &= ~UCA1RXD;
+    P4DIR  &= ~UCA1RXD;   // RXD as input
 
     P4SEL0 |= UCA1TXD;       
     P4SEL1 &= ~UCA1TXD; 
+    P4DIR  |= UCA1TXD;    // TXD as output
 
     P4SEL0 &= ~UCB1_CS_LCD;
     P4SEL1 &= ~UCB1_CS_LCD;

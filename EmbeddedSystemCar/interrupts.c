@@ -57,37 +57,80 @@ extern unsigned int IRChange;
 // Local ADC channel index for ISR rotation
 static volatile unsigned int ADCChannel = 0;
 
+// hw8
+// Match definition in serial.c so sizeof() is valid in this TU
+extern volatile char USB_Ring_Rx[SMALL_RING_SIZE];
+extern char iot_TX_buf[11];
+extern unsigned int iot_rx_wr;
+extern char IOT_Ring_Rx[11];
+extern volatile unsigned int iot_tx;
+extern volatile unsigned int usb_rx_ring_wr;
+extern volatile unsigned int ncsu_index;
+extern volatile unsigned int localCounter;
+extern volatile unsigned int debounce_count1;
+extern volatile unsigned int debounce_count2;
+extern volatile unsigned int direct_iot;
+// A0 TX buffer symbols (defined in serial.c)
+extern char process_buffer[25];
+extern char pb_index;
+
 
 
 
 //------------------------------------------------------------------------------
 // Serial Communication
 //------------------------------------------------------------------------------
+// eUSCI_A0 Interrupt Service Routine (ISR)
 #pragma vector = EUSCI_A0_VECTOR
-__interrupt void eUSCI_A0_ISR(void){
-    switch(__even_in_range(UCA0IV,0x08)){
-    case 0:
-        break;
-    case 2: // RXIFG
-        Serial_HandleUCA0Rx(UCA0RXBUF);
-        break;
-    case 4: // TXIFG (not used, fall through)
-    default:
-        break;
+__interrupt void eUSCI_A0_ISR(void) {
+    char iot_receive;
+    switch (__even_in_range(UCA0IV, 0x08)) {
+        case 0:
+            break;
+        case 2: // RXIFG
+            iot_receive = UCA0RXBUF;
+            IOT_Ring_Rx[iot_rx_wr++] = iot_receive; // Add to ring buffer
+            if (iot_rx_wr >= sizeof(IOT_Ring_Rx)) {
+                iot_rx_wr = BEGINNING; // Wrap ring buffer
+            }
+            // No cross-forwarding; keep channels independent for loopback tests
+            break;
+        case 4: // TXIFG
+            UCA0TXBUF = process_buffer[pb_index];   // Send out next byte
+            process_buffer[pb_index++] = '\0';      // Null-out sent location
+            if (process_buffer[pb_index] == '\0') { // Command finished
+                UCA0IE &= ~UCTXIE;                  // Disable TX interrupt
+            }
+            break;
+        default:
+            break;
     }
 }
 
+// eUSCI_A1 Interrupt Service Routine (ISR)
 #pragma vector = EUSCI_A1_VECTOR
-__interrupt void eUSCI_A1_ISR(void){
-    switch(__even_in_range(UCA1IV,0x08)){
-    case 0:
-        break;
-    case 2: // RXIFG
-        Serial_HandleUCA1Rx(UCA1RXBUF);
-        break;
-    case 4: // TXIFG (unused here)
-    default:
-        break;
+__interrupt void eUSCI_A1_ISR(void) {
+    char usb_value;
+    switch (__even_in_range(UCA1IV, 0x08)) {
+        case 0:
+            break;
+        case 2: // RXIFG
+            usb_value = UCA1RXBUF;
+            // Debug: flash RED LED on each received byte to confirm RX path
+            P1OUT ^= RED_LED;
+            USB_Ring_Rx[usb_rx_ring_wr++] = usb_value;
+            if (usb_rx_ring_wr >= sizeof(USB_Ring_Rx)) {
+                usb_rx_ring_wr = BEGINNING;
+            }
+            // No cross-forwarding; keep channels independent for loopback tests
+            break;
+        case 4: // TXIFG
+            // Nothing queued for A1 TX interrupt-driven sends in this project.
+            // Ensure TX interrupt is off.
+            UCA1IE &= ~UCTXIE;
+            break;
+        default:
+            break;
     }
 }
 

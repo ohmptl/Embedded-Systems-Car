@@ -9,25 +9,26 @@
 #ifndef SERIAL_H_
 #define SERIAL_H_
 
+// UART Initialization Functions
+void Init_Serial_UCA0(char speed);
+void Init_Serial_UCA1(char speed);
+void USCI_A0_transmit(void);
+void USCI_A1_transmit(void);
+void IOT_Process(void);
 
-// RX line length chosen to fit LCD width (10 chars) plus terminator
-#define SERIAL_RX_LINE_LENGTH      (11u)
+// Convenience helpers for HW08
+void UCA1_SendString(const char *s);
+void Serial_Process_USB_RX(void);
+void Serial_Process_IOT_RX(void);
 
-void Serial_InitAll(unsigned long baud);
-void Serial_SetBaudAll(unsigned long baud);
-unsigned long Serial_GetCurrentBaud(void);
+// Shared TX buffer used by A0 TX ISR
+extern char process_buffer[25];
+extern char pb_index;
 
-void Serial_SendStringUCA0(const char *str);
-void Serial_SendStringUCA1(const char *str);
-
-void Serial_ClearUCA1Rx(void);
-unsigned char Serial_UCA1LineReady(void);
-void Serial_CopyUCA1Line(char *dest, unsigned int dest_len);
-void Serial_Service(void);
-
-// Called from UART ISRs
-void Serial_HandleUCA0Rx(char byte_in);
-void Serial_HandleUCA1Rx(char byte_in);
+#define BEGINNING            (0)
+#define SMALL_RING_SIZE (16)
+#define LARGE_RING_SIZE (32)
+#define CHARACTER       (0)
 
 #endif // SERIAL_H_
 
