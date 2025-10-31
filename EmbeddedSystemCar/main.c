@@ -106,31 +106,6 @@ volatile unsigned int lap_ticks_accum;   // accumulated ticks in current lap
 unsigned int laps_completed;             // number of laps completed
 unsigned char follow_dir;                       // 'L' for CCW, 'R' for CW (like reference)
 
-//------------------------------------------------------------------------------
-// HW08: Serial and display helpers
-//------------------------------------------------------------------------------
-static const char STR_NCSU[]    = "NCSU  #1";   // two spaces between U and #
-static const char STR_460800[]  = "460,800";
-static const char STR_115200[]  = "115,200";
-
-static unsigned char hw8_inited = 0;
-static unsigned char splash_done = 0;
-static unsigned int  splash_start_ticks = 0;
-
-static unsigned char current_baud = 2;  // 1=115200, 2=460800 per serial.c
-static unsigned char pending_tx = 0;
-static unsigned int  tx_start_ticks = 0;
-
-static inline const char* baud_str(unsigned char mode) {
-    return (mode == 1) ? STR_115200 : STR_460800;
-}
-
-static void hw8_show_baud_screen(void) {
-    // Line 3: "Baud" centered; Line 4: current baud string centered
-    dispPrint("Baud", 3);
-    dispPrint((char*)baud_str(current_baud), 4);
-}
-
 void main(void){
     // WDTCTL = WDTPW | WDTHOLD;   // stop watchdog timer
     PM5CTL0 &= ~LOCKLPM5;
@@ -140,19 +115,9 @@ void main(void){
     Init_Conditions();                   // Initialize Variables and Initial Conditions
     Init_Timers();                       // Initialize Timers
     Init_LCD();                          // Initialize LCD
-    Init_ADC();                          // Initialize ADC
+    // Init_ADC();                          // Initialize ADC
 
-    // Startup Display (Splash)
-    strcpy(display_line[0], "   NCSU   ");
-    strcpy(display_line[1], " WOLFPACK ");
-    strcpy(display_line[2], "  ECE306  ");
-    strcpy(display_line[3], "  GP I/O  ");
-    display_changed = TRUE;
-
-    // Initialize serial ports at 460,800 baud (mode 2)
-    Init_Serial_UCA0(2);
-    Init_Serial_UCA1(2);
-    current_baud = 2;
+    Serial_Project8_Init();
 
 
 //------------------------------------------------------------------------------
@@ -173,71 +138,20 @@ void main(void){
 }
 
 void update(void){
+    Serial_Process_USB_RX();
+
     Display_Process();
 
-    // HW08 lifecycle
-    if (!hw8_inited) {
-        splash_start_ticks = Time_Sequence;
-        hw8_inited = 1;
-    }
-
-    // After 5 seconds of splash, show baud screen
-    if (!splash_done) {
-        if ((unsigned int)(Time_Sequence - splash_start_ticks) >= 25) { // 25 * 200ms = 5s
-            // Clear lines 1-2; show baud on 3-4
-            dispPrint("", 1);
-            dispPrint("", 2);
-            hw8_show_baud_screen();
-            splash_done = 1;
-        }
-    }
-
-    // Handle SW1/SW2 events from ISR to switch baud
     if (sw1_press_event) {
         sw1_press_event = 0;
-        // Set 115,200 on both ports
-        Init_Serial_UCA0(1);
-        Init_Serial_UCA1(1);
-        current_baud = 1;
-        // Clear line 1 and 2; update baud on line 4
-        dispPrint("", 1);
-        dispPrint("", 2);
-        hw8_show_baud_screen();
-        // Arm a 2-second delay then send string on UCA1
-        tx_start_ticks = Time_Sequence;
-        pending_tx = 1;
+        Serial_Project8_HandleTransmitRequest();
     }
+
     if (sw2_press_event) {
         sw2_press_event = 0;
-        // Set 460,800 on both ports
-        Init_Serial_UCA0(2);
-        Init_Serial_UCA1(2);
-        current_baud = 2;
-        // Clear line 1 and 2; update baud on line 4
-        dispPrint("", 1);
-        dispPrint("", 2);
-        hw8_show_baud_screen();
-        // Arm a 2-second delay then send string on UCA1
-        tx_start_ticks = Time_Sequence;
-        pending_tx = 1;
+        Serial_Project8_ToggleBaud();
     }
 
-    // Handle delayed TX after baud change
-    if (pending_tx) {
-        if ((unsigned int)(Time_Sequence - tx_start_ticks) >= 10) { // 10 * 200ms = 2s
-            // Send test string and a newline so RX side knows to display the line
-            UCA1_SendString(STR_NCSU);
-            UCA1_SendString("\r");
-            pending_tx = 0;
-        }
-    }
-
-    // Drain RX ring and display received data on line 1
-    Serial_Process_USB_RX();
-    // Also show UCA0 (FRAM/IOT) loopback on line 2 for Configuration 1
-    Serial_Process_IOT_RX();
-
-    // Existing state machine and modules
     Carlson_StateMachine();
     backlight_update();
     IR_Update();

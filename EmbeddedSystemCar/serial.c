@@ -47,11 +47,29 @@ volatile char USB_Ring_Rx[SMALL_RING_SIZE];
 char iot_TX_buf[11];
 
 
-//extern char NCSU[];
-extern volatile unsigned int ncsu_index;
-//extern volatile char iot_TX_buf[11];
-extern volatile char process_buf[25];
-extern char process_buffer[25]; // Size for appropriate Command Length
+extern volatile unsigned int Time_Sequence;
+
+#define SERIAL_MESSAGE_LEN          (10u)
+#define SERIAL_TRANSMIT_HOLD_TICKS  (5u)
+
+typedef enum {
+    SERIAL_STATE_WAITING = 0,
+    SERIAL_STATE_RECEIVED,
+    SERIAL_STATE_TRANSMIT
+} serial_display_state_t;
+
+static serial_display_state_t serial_display_state = SERIAL_STATE_WAITING;
+static unsigned int serial_state_timestamp = 0;
+static unsigned char serial_baud_mode = 1;
+static unsigned char serial_command_available = 0;
+static unsigned char serial_payload_len = 0;
+static char serial_payload[SERIAL_MESSAGE_LEN];
+static char serial_display_buf[SERIAL_MESSAGE_LEN + 1];
+static char usb_rx_message_buf[SERIAL_MESSAGE_LEN];
+static unsigned char usb_rx_message_len = 0;
+
+extern char display_line[4][11];
+extern volatile unsigned char display_changed;
 
 // UART Initialization: eUSCI_A0 (115200 baud)
 void Init_Serial_UCA0(char speed){
@@ -93,8 +111,8 @@ void Init_Serial_UCA0(char speed){
         UCA0MCTLW = 0x5551;
         break;
     case 2:
-        UCA0BRW = 17;                        // 460,800 baud
-        UCA0MCTLW = 0x4A00;
+        UCA0BRW = 52;                        // 9,600 baud
+        UCA0MCTLW = 0x4911;                  // UCBRS=0x49, UCBRF=1, UCOS16=1
         break;
     default:
         break;
@@ -145,8 +163,8 @@ void Init_Serial_UCA1(char speed){
         UCA1MCTLW = 0x5551;                  // UCBRS=0x55, UCBRF=5, UCOS16=1
         break;
     case 2:
-        UCA1BRW = 17;                        // 460,800 baud @ 8MHz, UCOS16=0, UCBRS=0x4A
-        UCA1MCTLW = 0x4A00;                  // UCBRS=0x4A, UCOS16=0
+        UCA1BRW = 52;                        // 9,600 baud @ 8MHz, UCOS16=1
+        UCA1MCTLW = 0x4911;                  // UCBRS=0x49, UCBRF=1, UCOS16=1
         break;
     default:
         break;
@@ -187,27 +205,130 @@ void UCA1_SendString(const char *s) {
     }
 }
 
-//------------------------------------------------------------------------------
-// Drain UCA1 RX ring (filled by ISR) and show latest line on LCD line 1
-//------------------------------------------------------------------------------
-extern char display_line[4][11];
-extern volatile unsigned char display_changed;
+static void Serial_DisplayRawLine(unsigned int row, const char *text, unsigned char length) {
+    unsigned int i;
+    unsigned char changed = 0;
+
+    if (row >= 4u) {
+        return;
+    }
+
+    for (i = 0; i < 10u; i++) {
+        char new_char = (i < length) ? text[i] : ' ';
+        if (display_line[row][i] != new_char) {
+            display_line[row][i] = new_char;
+            changed = 1u;
+        }
+    }
+    display_line[row][10] = '\0';
+
+    if (changed) {
+        display_changed = 1;
+    }
+}
+
+static void Serial_DisplayClearLine(unsigned int row) {
+    Serial_DisplayRawLine(row, "", 0u);
+}
+
+static const char* Serial_BaudLabel(unsigned char mode) {
+    return (mode == 2u) ? "9600" : "115200";
+}
+
+static void Serial_ShowBaudOnLine3(void) {
+    char line_text[11];
+    const char *label = Serial_BaudLabel(serial_baud_mode);
+    unsigned int i;
+    unsigned int count = (unsigned int)strlen(label);
+
+    if (count > 7u) {
+        count = 7u;
+    }
+
+    for (i = 0; i < 10u; i++) {
+        line_text[i] = ' ';
+    }
+    line_text[10] = '\0';
+    line_text[0] = 'B';
+    line_text[1] = 'R';
+    line_text[2] = ':';
+
+    for (i = 0; i < count; i++) {
+        line_text[3 + i] = label[i];
+    }
+
+    Serial_DisplayRawLine(2u, line_text, 10u);
+}
+
+static void Serial_FinalizeMessage(unsigned char length) {
+    unsigned int i;
+
+    if (length == 0u) {
+        usb_rx_message_len = 0u;
+        return;
+    }
+
+    if (length > SERIAL_MESSAGE_LEN) {
+        length = SERIAL_MESSAGE_LEN;
+    }
+
+    for (i = 0; i < length; i++) {
+        serial_payload[i] = usb_rx_message_buf[i];
+        serial_display_buf[i] = usb_rx_message_buf[i];
+    }
+    for (; i < SERIAL_MESSAGE_LEN; i++) {
+        serial_payload[i] = ' ';
+        serial_display_buf[i] = ' ';
+    }
+    serial_display_buf[SERIAL_MESSAGE_LEN] = '\0';
+
+    serial_payload_len = length;
+    serial_command_available = 1u;
+
+    dispPrint((char *)"Received", 1);
+    Serial_DisplayClearLine(1u);
+    Serial_DisplayRawLine(3u, serial_display_buf, SERIAL_MESSAGE_LEN);
+
+    serial_display_state = SERIAL_STATE_RECEIVED;
+    serial_state_timestamp = Time_Sequence;
+    usb_rx_message_len = 0u;
+}
+
+void Serial_Project8_Init(void) {
+    unsigned int i;
+
+    serial_baud_mode = 1u;
+    serial_display_state = SERIAL_STATE_WAITING;
+    serial_state_timestamp = Time_Sequence;
+    serial_command_available = 0u;
+    serial_payload_len = 0u;
+    usb_rx_message_len = 0u;
+
+    for (i = 0; i < SERIAL_MESSAGE_LEN; i++) {
+        serial_payload[i] = ' ';
+        serial_display_buf[i] = ' ';
+        usb_rx_message_buf[i] = 0;
+    }
+    serial_display_buf[SERIAL_MESSAGE_LEN] = '\0';
+
+    Init_Serial_UCA0(serial_baud_mode);
+    Init_Serial_UCA1(serial_baud_mode);
+
+    dispPrint((char *)"Waiting", 1);
+    Serial_DisplayClearLine(1u);
+    Serial_ShowBaudOnLine3();
+    Serial_DisplayClearLine(3u);
+}
 
 void Serial_Process_USB_RX(void) {
-    static char linebuf[11];
-    static unsigned int idx = 0;
-
-    // Failsafe: also poll hardware RX flag in case interrupts aren't firing
-    // This will be a no-op if the ISR is running and has already drained RXBUF.
     while (UCA1IFG & UCRXIFG) {
-        char c = UCA1RXBUF; // reading clears RXIFG
+        char c = UCA1RXBUF;
         USB_Ring_Rx[usb_rx_ring_wr++] = c;
         if (usb_rx_ring_wr >= sizeof(USB_Ring_Rx)) {
             usb_rx_ring_wr = BEGINNING;
         }
     }
 
-    // Drain any received bytes
     while (usb_rx_ring_rd != usb_rx_ring_wr) {
         char c = USB_Ring_Rx[usb_rx_ring_rd++];
         if (usb_rx_ring_rd >= sizeof(USB_Ring_Rx)) {
@@ -215,114 +336,96 @@ void Serial_Process_USB_RX(void) {
         }
 
         if (c == '\0') {
-            continue; // Ignore stray NULs so display strings stay intact
+            continue;
         }
 
         if (c == '\r' || c == '\n') {
-            // Terminate and display the accumulated line
-            linebuf[idx] = '\0';
-            // Center using Display helper; but here copy directly to display_line[0]
-            // Ensure 10-char field padded with spaces
-            char temp[11];
-            int len = (int)strlen(linebuf);
-            if (len > 10) len = 10;
-            int spaces = (10 - len) >> 1;
-            {
-                unsigned int i;
-                for (i = 0; i < 10; i++) temp[i] = ' ';
+            if (usb_rx_message_len > 0u) {
+                Serial_FinalizeMessage(usb_rx_message_len);
             }
-            temp[10] = '\0';
-            memcpy(&temp[spaces], linebuf, len);
-            strcpy(display_line[0], temp);
-            display_changed = 1;
-            idx = 0;
-        } else {
-            if (idx < 10) {
-                linebuf[idx++] = c;
-                // Live update as characters arrive (helps when no newline is sent)
-                char temp[11];
-                int len = (int)idx;
-                if (len > 10) len = 10;
-                int spaces = (10 - len) >> 1;
-                {
-                    unsigned int i;
-                    for (i = 0; i < 10; i++) temp[i] = ' ';
-                }
-                temp[10] = '\0';
-                memcpy(&temp[spaces], linebuf, len);
-                strcpy(display_line[0], temp);
-                display_changed = 1;
-            } else {
-                // If overflow, show immediately and reset
-                linebuf[10] = '\0';
-                strcpy(display_line[0], linebuf);
-                display_changed = 1;
-                idx = 0;
+            usb_rx_message_len = 0u;
+            continue;
+        }
+
+        if (usb_rx_message_len < SERIAL_MESSAGE_LEN) {
+            usb_rx_message_buf[usb_rx_message_len++] = c;
+            if (usb_rx_message_len >= SERIAL_MESSAGE_LEN) {
+                Serial_FinalizeMessage(usb_rx_message_len);
             }
+        }
+    }
+
+    if (serial_display_state == SERIAL_STATE_TRANSMIT) {
+        unsigned int elapsed = Time_Sequence - serial_state_timestamp;
+        if (elapsed >= SERIAL_TRANSMIT_HOLD_TICKS) {
+            dispPrint((char *)"Waiting", 1);
+            serial_display_state = SERIAL_STATE_WAITING;
+            serial_state_timestamp = Time_Sequence;
         }
     }
 }
 
-//------------------------------------------------------------------------------
-// Drain UCA0 RX ring (filled by ISR) and show latest line on LCD line 2
-//------------------------------------------------------------------------------
-extern char display_line[4][11];
-extern volatile unsigned char display_changed;
+void Serial_Project8_HandleTransmitRequest(void) {
+    unsigned int i;
+
+    if (!serial_command_available || (serial_payload_len == 0u)) {
+        Serial_DisplayRawLine(1u, "No Cmd", 6u);
+        Serial_DisplayClearLine(3u);
+        if (serial_display_state != SERIAL_STATE_WAITING) {
+            dispPrint((char *)"Waiting", 1);
+        }
+        serial_display_state = SERIAL_STATE_WAITING;
+        serial_state_timestamp = Time_Sequence;
+        return;
+    }
+
+    dispPrint((char *)"Transmit", 1);
+    Serial_DisplayRawLine(1u, serial_display_buf, SERIAL_MESSAGE_LEN);
+    Serial_DisplayClearLine(3u);
+
+    for (i = 0; i < serial_payload_len; i++) {
+        while (!(UCA1IFG & UCTXIFG)) {
+            /* wait */
+        }
+        UCA1TXBUF = serial_payload[i];
+    }
+    while (!(UCA1IFG & UCTXIFG)) {
+        /* wait */
+    }
+    UCA1TXBUF = '\r';
+    while (!(UCA1IFG & UCTXIFG)) {
+        /* wait */
+    }
+    UCA1TXBUF = '\n';
+
+    serial_command_available = 0u;
+    serial_payload_len = 0u;
+    serial_display_state = SERIAL_STATE_TRANSMIT;
+    serial_state_timestamp = Time_Sequence;
+}
+
+void Serial_Project8_ToggleBaud(void) {
+    serial_baud_mode = (serial_baud_mode == 1u) ? 2u : 1u;
+
+    Init_Serial_UCA0(serial_baud_mode);
+    Init_Serial_UCA1(serial_baud_mode);
+
+    usb_rx_message_len = 0u;
+
+    Serial_ShowBaudOnLine3();
+
+    if (serial_display_state != SERIAL_STATE_RECEIVED) {
+        dispPrint((char *)"Waiting", 1);
+        serial_display_state = SERIAL_STATE_WAITING;
+        serial_state_timestamp = Time_Sequence;
+    }
+}
 
 void Serial_Process_IOT_RX(void) {
-    static char linebuf0[11];
-    static unsigned int idx0 = 0;
-
-    // Drain any received bytes from UCA0 ring
     while (iot_rx_rd != iot_rx_wr) {
-        char c = IOT_Ring_Rx[iot_rx_rd++];
+        (void)IOT_Ring_Rx[iot_rx_rd++];
         if (iot_rx_rd >= sizeof(IOT_Ring_Rx)) {
             iot_rx_rd = BEGINNING;
-        }
-
-        if (c == '\0') {
-            continue; // Skip NULs that are not part of displayable text
-        }
-
-        if (c == '\r' || c == '\n') {
-            // Terminate and display the accumulated line on LCD line 2
-            linebuf0[idx0] = '\0';
-            char temp[11];
-            int len = (int)strlen(linebuf0);
-            if (len > 10) len = 10;
-            int spaces = (10 - len) >> 1;
-            {
-                unsigned int i;
-                for (i = 0; i < 10; i++) temp[i] = ' ';
-            }
-            temp[10] = '\0';
-            memcpy(&temp[spaces], linebuf0, len);
-            strcpy(display_line[1], temp); // line 2
-            display_changed = 1;
-            idx0 = 0;
-        } else {
-            if (idx0 < 10) {
-                linebuf0[idx0++] = c;
-                // Live update
-                char temp[11];
-                int len = (int)idx0;
-                if (len > 10) len = 10;
-                int spaces = (10 - len) >> 1;
-                {
-                    unsigned int i;
-                    for (i = 0; i < 10; i++) temp[i] = ' ';
-                }
-                temp[10] = '\0';
-                memcpy(&temp[spaces], linebuf0, len);
-                strcpy(display_line[1], temp);
-                display_changed = 1;
-            } else {
-                // Overflow: show immediately and reset
-                linebuf0[10] = '\0';
-                strcpy(display_line[1], linebuf0);
-                display_changed = 1;
-                idx0 = 0;
-            }
         }
     }
 }

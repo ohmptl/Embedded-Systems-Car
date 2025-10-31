@@ -21,6 +21,11 @@ void UCA1_SendString(const char *s);
 void Serial_Process_USB_RX(void);
 void Serial_Process_IOT_RX(void);
 
+// Project 8 control flow helpers
+void Serial_Project8_Init(void);
+void Serial_Project8_HandleTransmitRequest(void);
+void Serial_Project8_ToggleBaud(void);
+
 // Shared TX buffer used by A0 TX ISR
 extern char process_buffer[25];
 extern char pb_index;
