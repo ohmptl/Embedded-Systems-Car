@@ -9,31 +9,30 @@
 #ifndef SERIAL_H_
 #define SERIAL_H_
 
-// UART Initialization Functions
-void Init_Serial_UCA0(char speed);
-void Init_Serial_UCA1(char speed);
-void USCI_A0_transmit(void);
-void USCI_A1_transmit(void);
-void IOT_Process(void);
+#include <stdint.h>
 
-// Convenience helpers for HW08
-void UCA1_SendString(const char *s);
-void Serial_Process_USB_RX(void);
-void Serial_Process_IOT_RX(void);
+typedef struct {
+	char direction;       // 'F', 'B', 'L', 'R', etc.
+	uint16_t duration;    // Abstract time units from incoming command
+} serial_motion_command_t;
 
-// Project 8 control flow helpers
-void Serial_Project8_Init(void);
-void Serial_Project8_HandleTransmitRequest(void);
-void Serial_Project8_ToggleBaud(void);
+void Serial_Project9_Init(void);
+void Serial_Project9_Service(void);
 
-// Shared TX buffer used by A0 TX ISR
-extern char process_buffer[25];
-extern char pb_index;
+// Helpers for local button-triggered queries / maintenance
+void Serial_RequestWifiStatus(void);
+void Serial_RequestIpAddress(void);
+void Serial_ResetIotModule(void);
+void Serial_SendIotCommand(const char *command);
+void Serial_ShowWifiStatusScreen(void);
+
+// Command retrieval for higher-level control
+uint8_t Serial_DequeueMotionCommand(serial_motion_command_t *out_command);
+uint8_t Serial_HostReady(void);
 
 #define BEGINNING            (0)
-#define SMALL_RING_SIZE (16)
-#define LARGE_RING_SIZE (32)
-#define CHARACTER       (0)
+#define SMALL_RING_SIZE      (128)
+#define LARGE_RING_SIZE      (256)
 
 #endif // SERIAL_H_
 

@@ -1,6 +1,6 @@
 //------------------------------------------------------------------------------
 //  Name:           serial.c
-//  Description:    serial file
+//  Description:    Serial support for Project 09 (IOT communication)
 //  Author:         Ohm Patel
 //  Date:           Oct 2025
 //  IDE:            CCS20.3.0
@@ -11,422 +11,724 @@
 #include "macros.h"
 #include "serial.h"
 #include "display.h"
+#include "functions.h"
 #include <string.h>
+#include <ctype.h>
 
+#define SERIAL_HEARTBEAT_PERIOD_TICKS      (5u)   // ~1 second @ 0.2s tick
+#define SERIAL_BIG_DISPLAY_HOLD_TICKS      (5u)
+#define SERIAL_WIFI_DISPLAY_HOLD_TICKS     (25u)  // ~5 seconds
+#define SERIAL_MAX_CMD_LEN                 (32u)
+#define SERIAL_MAX_IOT_LINE_LEN            (96u)
+#define SERIAL_AUTH_PIN                    "2005"
+#define SERIAL_AUTH_PIN_LEN                ((unsigned char)(sizeof(SERIAL_AUTH_PIN) - 1u))
 
-volatile unsigned int iot_rx_wr;
-volatile unsigned int iot_rx_rd;
-char IOT_Data[11][11];
-char IOT_Ring_Rx[11];
-volatile int ip_address[11];
-char ip_mac[11];
-volatile unsigned int direct_iot;
-volatile unsigned int iot_index;
-volatile int ip_address_found;
-volatile unsigned int iot_tx;
-volatile unsigned int boot_state;
-volatile unsigned int IOT_parse;
+typedef enum {
+	SERIAL_BAUD_FAST = 1u,
+	SERIAL_BAUD_SLOW = 2u
+} serial_baud_t;
+
 volatile unsigned int usb_rx_ring_wr = 0;
-volatile unsigned int usb_rx_ring_rd;
-volatile unsigned int usb_tx_ring_wr;
-volatile unsigned int usb_tx_ring_rd;
-volatile char USB_Char_Rx[SMALL_RING_SIZE];
-volatile char USB_Char_Tx[11];
-volatile char IOT_Char_Rx[11];
-volatile char IOT_Char_Tx[11];
-volatile int Still_Put_In_Processor = 1;
-volatile unsigned int test_Value;
-unsigned int nextline;
-int unsigned line = 0;
-int character = 0;
-char pb_index;  // Index for process_buffer
-volatile char NCSU[] = "NCSU  #1  ";
-volatile unsigned int ncsu_index = 0;
-// RX ring for UCA1 (USB back-channel). Use a modest ring to avoid overflow on bursts.
-volatile char USB_Ring_Rx[SMALL_RING_SIZE];
-char iot_TX_buf[11];
+volatile unsigned int usb_rx_ring_rd = 0;
+volatile unsigned int iot_rx_wr = 0;
+volatile unsigned int iot_rx_rd = 0;
 
+volatile char USB_Ring_Rx[SMALL_RING_SIZE];
+volatile char IOT_Ring_Rx[LARGE_RING_SIZE];
+
+static serial_baud_t current_iot_baud = SERIAL_BAUD_FAST;
+static unsigned char pc_link_open = 0;
+
+static char command_buffer[SERIAL_MAX_CMD_LEN];
+static unsigned char command_length = 0;
+static unsigned char command_active = 0;
+
+static unsigned int last_heartbeat_stamp = 0;
+
+static char wifi_ssid[11];
+static unsigned char wifi_ssid_valid = 0;
+static char wifi_ip[16];
+static unsigned char wifi_ip_valid = 0;
+
+static char iot_line_buffer[SERIAL_MAX_IOT_LINE_LEN];
+static unsigned char iot_line_length = 0;
+
+static unsigned char big_display_active = 0;
+static unsigned int big_display_timestamp = 0;
+
+static serial_motion_command_t pending_motion_command;
+static volatile unsigned char motion_command_pending = 0;
+
+typedef enum {
+	SERIAL_DISPLAY_WIFI = 0,
+	SERIAL_DISPLAY_WAITING,
+	SERIAL_DISPLAY_BIG
+} serial_display_mode_t;
+
+static serial_display_mode_t current_display_mode = SERIAL_DISPLAY_WIFI;
+static unsigned int display_mode_timestamp = 0u;
 
 extern volatile unsigned int Time_Sequence;
 
-#define SERIAL_MESSAGE_LEN          (10u)
-#define SERIAL_TRANSMIT_HOLD_TICKS  (5u)
+// Forward declarations -------------------------------------------------------
+static void Serial_ResetRings(void);
+static void Serial_InitUCA0(serial_baud_t speed);
+static void Serial_InitUCA1(void);
+static void Serial_WritePcChar(char c);
+static void Serial_WritePcString(const char *s);
+static void Serial_WritePcLine(const char *s);
+static void Serial_WriteIotChar(char c);
+static void Serial_ProcessUsbChar(char c);
+static void Serial_FinalizeCommand(void);
+static void Serial_HandleCommand(const char *cmd, unsigned char len);
+static void Serial_SetIotBaud(serial_baud_t mode);
+static void Serial_ShowBaudOnDisplay(serial_baud_t mode);
+static void Serial_ProcessIotChar(char c);
+static void Serial_ProcessIotLine(const char *line);
+static void Serial_ParseWifiSsidLine(const char *line);
+static void Serial_ParseWifiIpLine(const char *line);
+static void Serial_HandleWifiReady(void);
+static void Serial_ShowWifiScreen(void);
+static void Serial_RefreshWifiScreen(void);
+static void Serial_ShowWaitingScreen(void);
+static void Serial_DisplayModeService(void);
+static void Serial_ServiceHeartbeat(void);
+static void Serial_ParseIotPacket(const char *line);
+static void Serial_HandleIotPayload(const char *payload);
+static void Serial_ShowBigText(const char *text);
+static void Serial_ShowBigCommand(char direction, unsigned int duration);
+static void Serial_TeardownBigCommand(void);
+static unsigned int Serial_ParseUnsigned(const char *s, unsigned char len);
+static void Serial_SendIotString(const char *command);
+static void Serial_FormatIpForDisplay(char *line3, char *line4);
 
-typedef enum {
-    SERIAL_STATE_WAITING = 0,
-    SERIAL_STATE_RECEIVED,
-    SERIAL_STATE_TRANSMIT
-} serial_display_state_t;
+//------------------------------------------------------------------------------
+//  Public API
+//------------------------------------------------------------------------------
 
-static serial_display_state_t serial_display_state = SERIAL_STATE_WAITING;
-static unsigned int serial_state_timestamp = 0;
-static unsigned char serial_baud_mode = 1;
-static unsigned char serial_command_available = 0;
-static unsigned char serial_payload_len = 0;
-static char serial_payload[SERIAL_MESSAGE_LEN];
-static char serial_display_buf[SERIAL_MESSAGE_LEN + 1];
-static char usb_rx_message_buf[SERIAL_MESSAGE_LEN];
-static unsigned char usb_rx_message_len = 0;
+void Serial_Project9_Init(void) {
+	Serial_ResetRings();
 
-extern char display_line[4][11];
-extern volatile unsigned char display_changed;
+	pc_link_open = 0;
+	command_active = 0;
+	command_length = 0;
+	wifi_ssid_valid = 0;
+	wifi_ip_valid = 0;
+	iot_line_length = 0;
+	big_display_active = 0;
+	motion_command_pending = 0;
 
-// UART Initialization: eUSCI_A0 (115200 baud)
-void Init_Serial_UCA0(char speed){
-    //-----------------------------------------------------------------------------
-    //                                               TX error (%) RX error (%)
-    //  BRCLK   Baudrate UCOS16  UCBRx  UCFx    UCSx    neg   pos  neg  pos
-    //  8000000    4800     1     104     2     0xD6   -0.08 0.04 -0.10 0.14
-    //  8000000    9600     1      52     1     0x49   -0.08 0.04 -0.10 0.14
-    //  8000000   19200     1      26     0     0xB6   -0.08 0.16 -0.28 0.20
-    //  8000000   57600     1       8    10     0xF7   -0.32 0.32 -1.00 0.36
-    //  8000000  115200     1       4     5     0x55   -0.80 0.64 -1.12 1.76
-    //  8000000  460800     0      17     0     0x4A   -2.72 2.56 -3.76 7.28
-    //-----------------------------------------------------------------------------
-    // Configure eUSCI_A0 for UART mode
-    UCA0CTLW0 = 0;
-    UCA0CTLW0 |=  UCSWRST ;              // Put eUSCI in reset
-    UCA0CTLW0 |=  UCSSEL__SMCLK;         // Set SMCLK as fBRCLK
-    UCA0CTLW0 &= ~UCMSB;                 // MSB, LSB select
-    UCA0CTLW0 &= ~UCSPB;                 // UCSPB = 0(1 stop bit) OR 1(2 stop bits)
-    UCA0CTLW0 &= ~UCPEN;                 // No Parity
-    UCA0CTLW0 &= ~UCSYNC;
-    UCA0CTLW0 &= ~UC7BIT;
-    UCA0CTLW0 |=  UCMODE_0;
-    //    BRCLK   Baudrate UCOS16  UCBRx  UCFx    UCSx    neg   pos  neg  pos
-    //    8000000  115200     1       4     5     0x55   -0.80 0.64 -1.12 1.76
-    //    UCA?MCTLW = UCSx + UCFx + UCOS16
+	current_iot_baud = SERIAL_BAUD_FAST;
+	Serial_InitUCA0(current_iot_baud);
+	Serial_InitUCA1();
 
-    int i;
-    // Init A0 RX ring (IOT_Ring_Rx) and indices
-    for(i=0; i<(int)sizeof(IOT_Ring_Rx); i++){
-        IOT_Ring_Rx[i] = 0x00;
-    }
-    iot_rx_wr = BEGINNING;
-    iot_rx_rd = BEGINNING;
-
-    switch(speed){
-    case 1:
-        UCA0BRW = 4 ;                        // 115,200 baud
-        UCA0MCTLW = 0x5551;
-        break;
-    case 2:
-        UCA0BRW = 52;                        // 9,600 baud
-        UCA0MCTLW = 0x4911;                  // UCBRS=0x49, UCBRF=1, UCOS16=1
-        break;
-    default:
-        break;
-    }
-
-    UCA0CTLW0 &= ~UCSWRST ;              // release from reset
-    // Do not write a dummy byte here; loopback setups would see it as a NUL.
-    UCA0IE |= UCRXIE;                    // Enable RX interrupt
-
-    //-----------------------------------------------------------------------------
+	P3OUT |= IOT_EN_CPU;   // ensure module is released from reset
+	last_heartbeat_stamp = Time_Sequence;
+	Serial_ShowWifiScreen();
 }
 
-void Init_Serial_UCA1(char speed){
-    //-----------------------------------------------------------------------------
-    //                                               TX error (%) RX error (%)
-    //  BRCLK   Baudrate UCOS16  UCBRx  UCFx    UCSx    neg   pos  neg  pos
-    //  8000000    4800     1     104     2     0xD6   -0.08 0.04 -0.10 0.14
-    //  8000000    9600     1      52     1     0x49   -0.08 0.04 -0.10 0.14
-    //  8000000   19200     1      26     0     0xB6   -0.08 0.16 -0.28 0.20
-    //  8000000   57600     1       8    10     0xF7   -0.32 0.32 -1.00 0.36
-    //  8000000  115200     1       4     5     0x55   -0.80 0.64 -1.12 1.76
-    //  8000000  460800     0      17     0     0x4A   -2.72 2.56 -3.76 7.28
-    //-----------------------------------------------------------------------------
-    // Configure eUSCI_A0 for UART mode
-    UCA1CTLW0 = 0;
-    UCA1CTLW0 |=  UCSWRST ;              // Put eUSCI in reset
-    UCA1CTLW0 |=  UCSSEL__SMCLK;         // Set SMCLK as fBRCLK
-    UCA1CTLW0 &= ~UCMSB;                 // MSB, LSB select
-    UCA1CTLW0 &= ~UCSPB;                 // UCSPB = 0(1 stop bit) OR 1(2 stop bits)
-    UCA1CTLW0 &= ~UCPEN;                 // No Parity
-    UCA1CTLW0 &= ~UCSYNC;
-    UCA1CTLW0 &= ~UC7BIT;
-    UCA1CTLW0 |=  UCMODE_0;
-    //    BRCLK   Baudrate UCOS16  UCBRx  UCFx    UCSx    neg   pos  neg  pos
-    //    8000000  115200     1       4     5     0x55   -0.80 0.64 -1.12 1.76
-    //    UCA?MCTLW = UCSx + UCFx + UCOS16
-    int i;
-    // Init A1 RX ring (USB_Ring_Rx) and indices used by ISR/processor
-    for(i=0; i<(int)sizeof(USB_Ring_Rx); i++){
-        USB_Ring_Rx[i] = 0x00;
-    }
-    usb_rx_ring_wr = BEGINNING;
-    usb_rx_ring_rd = BEGINNING;
+void Serial_Project9_Service(void) {
+	while (usb_rx_ring_rd != usb_rx_ring_wr) {
+		char c = USB_Ring_Rx[usb_rx_ring_rd++];
+		if (usb_rx_ring_rd >= SMALL_RING_SIZE) {
+			usb_rx_ring_rd = BEGINNING;
+		}
+		Serial_ProcessUsbChar(c);
+	}
 
-    switch(speed){
-    case 1:
-        UCA1BRW = 4;                         // 115,200 baud @ 8MHz, UCOS16=1, UCBRF=5, UCBRS=0x55
-        UCA1MCTLW = 0x5551;                  // UCBRS=0x55, UCBRF=5, UCOS16=1
-        break;
-    case 2:
-        UCA1BRW = 52;                        // 9,600 baud @ 8MHz, UCOS16=1
-        UCA1MCTLW = 0x4911;                  // UCBRS=0x49, UCBRF=1, UCOS16=1
-        break;
-    default:
-        break;
-    }
+	while (iot_rx_rd != iot_rx_wr) {
+		char c = IOT_Ring_Rx[iot_rx_rd++];
+		if (iot_rx_rd >= LARGE_RING_SIZE) {
+			iot_rx_rd = BEGINNING;
+		}
+		Serial_ProcessIotChar(c);
+	}
 
-    UCA1CTLW0 &= ~UCSWRST ;              // release from reset
-    // Avoid sending a spurious NUL that would pollute loopback RX buffers.
-    UCA1IE |= UCRXIE;                    // Enable RX interrupt
-
-    //-----------------------------------------------------------------------------
+	Serial_ServiceHeartbeat();
+	Serial_DisplayModeService();
 }
 
-// UART Transmit Function: USCI_A0
-char process_buffer[25];   // Buffer for commands/strings
-char pb_index;             // Index for buffer
-
-void USCI_A0_transmit(void) {
-    pb_index = 0;          // Start at beginning
-    UCA0IE |= UCTXIE;      // Enable TX interrupt
+void Serial_RequestWifiStatus(void) {
+	Serial_SendIotCommand("AT+CWJAP?");
+	Serial_ShowWifiScreen();
 }
 
+void Serial_RequestIpAddress(void) {
+	Serial_SendIotCommand("AT+CIFSR");
+	Serial_ShowWifiScreen();
+}
 
-// Example Process Function for IOT Messages (not used for HW08)
-// Keep as a safe no-op to avoid pulling in undefined symbols/macros
-void IOT_Process(void) {
-    (void)iot_tx; (void)iot_index; (void)IOT_parse; (void)ip_address_found;
-    // Intentionally empty
+void Serial_ResetIotModule(void) {
+	P3OUT &= ~IOT_EN_CPU;
+	five_msec_sleep(20);         // ~100ms
+	P3OUT |= IOT_EN_CPU;
+}
+
+void Serial_ShowWifiStatusScreen(void) {
+	Serial_ShowWifiScreen();
+}
+
+void Serial_SendIotCommand(const char *command) {
+	if (!command || !*command) {
+		return;
+	}
+	Serial_SendIotString(command);
+	Serial_WritePcString(">> ");
+	Serial_WritePcLine(command);
+}
+
+uint8_t Serial_DequeueMotionCommand(serial_motion_command_t *out_command) {
+	if (!motion_command_pending || !out_command) {
+		return 0u;
+	}
+	out_command->direction = pending_motion_command.direction;
+	out_command->duration  = pending_motion_command.duration;
+	motion_command_pending = 0u;
+	return 1u;
+}
+
+uint8_t Serial_HostReady(void) {
+	return pc_link_open;
 }
 
 //------------------------------------------------------------------------------
-// Simple polled sender for UCA1: send a C-string out the back-channel UART
+//  Private helpers
 //------------------------------------------------------------------------------
-void UCA1_SendString(const char *s) {
-    if (!s) return;
-    while (*s) {
-        while (!(UCA1IFG & UCTXIFG)) { /* wait */ }
-        UCA1TXBUF = *s++;
-    }
+
+static void Serial_ResetRings(void) {
+	unsigned int i;
+	for (i = 0; i < SMALL_RING_SIZE; i++) {
+		USB_Ring_Rx[i] = 0;
+	}
+	usb_rx_ring_wr = BEGINNING;
+	usb_rx_ring_rd = BEGINNING;
+
+	for (i = 0; i < LARGE_RING_SIZE; i++) {
+		IOT_Ring_Rx[i] = 0;
+	}
+	iot_rx_wr = BEGINNING;
+	iot_rx_rd = BEGINNING;
 }
 
-static void Serial_DisplayRawLine(unsigned int row, const char *text, unsigned char length) {
-    unsigned int i;
-    unsigned char changed = 0;
+static void Serial_InitUCA0(serial_baud_t speed) {
+	UCA0CTLW0 = UCSWRST;
+	UCA0CTLW0 |= UCSSEL__SMCLK;
+	UCA0CTLW0 &= ~(UCMSB | UCSPB | UCPEN | UCSYNC | UC7BIT);
+	UCA0CTLW0 |= UCMODE_0;
 
-    if (row >= 4u) {
-        return;
-    }
+	switch (speed) {
+		case SERIAL_BAUD_SLOW:
+			UCA0BRW = 52u;
+			UCA0MCTLW = 0x4911u;
+			break;
+		case SERIAL_BAUD_FAST:
+		default:
+			UCA0BRW = 4u;
+			UCA0MCTLW = 0x5551u;
+			break;
+	}
 
-    for (i = 0; i < 10u; i++) {
-        char new_char = (i < length) ? text[i] : ' ';
-        if (display_line[row][i] != new_char) {
-            display_line[row][i] = new_char;
-            changed = 1u;
-        }
-    }
-    display_line[row][10] = '\0';
-
-    if (changed) {
-        display_changed = 1;
-    }
+	UCA0CTLW0 &= ~UCSWRST;
+	UCA0IE |= UCRXIE;
 }
 
-static void Serial_DisplayClearLine(unsigned int row) {
-    Serial_DisplayRawLine(row, "", 0u);
+static void Serial_InitUCA1(void) {
+	UCA1CTLW0 = UCSWRST;
+	UCA1CTLW0 |= UCSSEL__SMCLK;
+	UCA1CTLW0 &= ~(UCMSB | UCSPB | UCPEN | UCSYNC | UC7BIT);
+	UCA1CTLW0 |= UCMODE_0;
+
+	UCA1BRW = 4u;
+	UCA1MCTLW = 0x5551u;
+
+	UCA1CTLW0 &= ~UCSWRST;
+	UCA1IE |= UCRXIE;
 }
 
-static const char* Serial_BaudLabel(unsigned char mode) {
-    return (mode == 2u) ? "9600" : "115200";
+static void Serial_WritePcChar(char c) {
+	if (!pc_link_open) {
+		return;
+	}
+	while (!(UCA1IFG & UCTXIFG)) {
+		;
+	}
+	UCA1TXBUF = c;
 }
 
-static void Serial_ShowBaudOnLine3(void) {
-    char line_text[11];
-    const char *label = Serial_BaudLabel(serial_baud_mode);
-    unsigned int i;
-    unsigned int count = (unsigned int)strlen(label);
-
-    if (count > 7u) {
-        count = 7u;
-    }
-
-    for (i = 0; i < 10u; i++) {
-        line_text[i] = ' ';
-    }
-    line_text[10] = '\0';
-    line_text[0] = 'B';
-    line_text[1] = 'R';
-    line_text[2] = ':';
-
-    for (i = 0; i < count; i++) {
-        line_text[3 + i] = label[i];
-    }
-
-    Serial_DisplayRawLine(2u, line_text, 10u);
+static void Serial_WritePcString(const char *s) {
+	if (!pc_link_open || !s) {
+		return;
+	}
+	while (*s) {
+		Serial_WritePcChar(*s++);
+	}
 }
 
-static void Serial_FinalizeMessage(unsigned char length) {
-    unsigned int i;
-
-    if (length == 0u) {
-        usb_rx_message_len = 0u;
-        return;
-    }
-
-    if (length > SERIAL_MESSAGE_LEN) {
-        length = SERIAL_MESSAGE_LEN;
-    }
-
-    for (i = 0; i < length; i++) {
-        serial_payload[i] = usb_rx_message_buf[i];
-        serial_display_buf[i] = usb_rx_message_buf[i];
-    }
-    for (; i < SERIAL_MESSAGE_LEN; i++) {
-        serial_payload[i] = ' ';
-        serial_display_buf[i] = ' ';
-    }
-    serial_display_buf[SERIAL_MESSAGE_LEN] = '\0';
-
-    serial_payload_len = length;
-    serial_command_available = 1u;
-
-    dispPrint((char *)"Received", 1);
-    Serial_DisplayClearLine(1u);
-    Serial_DisplayRawLine(3u, serial_display_buf, SERIAL_MESSAGE_LEN);
-
-    serial_display_state = SERIAL_STATE_RECEIVED;
-    serial_state_timestamp = Time_Sequence;
-    usb_rx_message_len = 0u;
+static void Serial_WritePcLine(const char *s) {
+	Serial_WritePcString(s);
+	Serial_WritePcChar('\r');
+	Serial_WritePcChar('\n');
 }
 
-void Serial_Project8_Init(void) {
-    unsigned int i;
-
-    serial_baud_mode = 1u;
-    serial_display_state = SERIAL_STATE_WAITING;
-    serial_state_timestamp = Time_Sequence;
-    serial_command_available = 0u;
-    serial_payload_len = 0u;
-    usb_rx_message_len = 0u;
-
-    for (i = 0; i < SERIAL_MESSAGE_LEN; i++) {
-        serial_payload[i] = ' ';
-        serial_display_buf[i] = ' ';
-        usb_rx_message_buf[i] = 0;
-    }
-    serial_display_buf[SERIAL_MESSAGE_LEN] = '\0';
-
-    Init_Serial_UCA0(serial_baud_mode);
-    Init_Serial_UCA1(serial_baud_mode);
-
-    dispPrint((char *)"Waiting", 1);
-    Serial_DisplayClearLine(1u);
-    Serial_ShowBaudOnLine3();
-    Serial_DisplayClearLine(3u);
+static void Serial_WriteIotChar(char c) {
+	while (!(UCA0IFG & UCTXIFG)) {
+		;
+	}
+	UCA0TXBUF = c;
 }
 
-void Serial_Process_USB_RX(void) {
-    while (UCA1IFG & UCRXIFG) {
-        char c = UCA1RXBUF;
-        USB_Ring_Rx[usb_rx_ring_wr++] = c;
-        if (usb_rx_ring_wr >= sizeof(USB_Ring_Rx)) {
-            usb_rx_ring_wr = BEGINNING;
-        }
-    }
+static void Serial_ProcessUsbChar(char c) {
+	if (!pc_link_open) {
+		pc_link_open = 1u;
+		Serial_WritePcLine("FRAM link opened");
+		last_heartbeat_stamp = Time_Sequence;
+	}
 
-    while (usb_rx_ring_rd != usb_rx_ring_wr) {
-        char c = USB_Ring_Rx[usb_rx_ring_rd++];
-        if (usb_rx_ring_rd >= sizeof(USB_Ring_Rx)) {
-            usb_rx_ring_rd = BEGINNING;
-        }
+	if (c == '\0') {
+		return;
+	}
 
-        if (c == '\0') {
-            continue;
-        }
+	if (!command_active) {
+		if (c == '^') {
+			command_active = 1u;
+			command_length = 0u;
+			return;
+		}
+		Serial_WriteIotChar(c);
+		return;
+	}
 
-        if (c == '\r' || c == '\n') {
-            if (usb_rx_message_len > 0u) {
-                Serial_FinalizeMessage(usb_rx_message_len);
-            }
-            usb_rx_message_len = 0u;
-            continue;
-        }
+	if ((c == '\r') || (c == '\n')) {
+		Serial_FinalizeCommand();
+		command_active = 0u;
+		command_length = 0u;
+		return;
+	}
 
-        if (usb_rx_message_len < SERIAL_MESSAGE_LEN) {
-            usb_rx_message_buf[usb_rx_message_len++] = c;
-            if (usb_rx_message_len >= SERIAL_MESSAGE_LEN) {
-                Serial_FinalizeMessage(usb_rx_message_len);
-            }
-        }
-    }
-
-    if (serial_display_state == SERIAL_STATE_TRANSMIT) {
-        unsigned int elapsed = Time_Sequence - serial_state_timestamp;
-        if (elapsed >= SERIAL_TRANSMIT_HOLD_TICKS) {
-            dispPrint((char *)"Waiting", 1);
-            serial_display_state = SERIAL_STATE_WAITING;
-            serial_state_timestamp = Time_Sequence;
-        }
-    }
+	if (command_length < SERIAL_MAX_CMD_LEN) {
+		command_buffer[command_length++] = c;
+	} else {
+		command_active = 0u;
+		command_length = 0u;
+		Serial_WritePcLine("ERR command too long");
+	}
 }
 
-void Serial_Project8_HandleTransmitRequest(void) {
-    unsigned int i;
+static void Serial_FinalizeCommand(void) {
+	if (command_length == 0u) {
+		Serial_WritePcLine("ERR empty command");
+		return;
+	}
 
-    if (!serial_command_available || (serial_payload_len == 0u)) {
-        Serial_DisplayRawLine(1u, "No Cmd", 6u);
-        Serial_DisplayClearLine(3u);
-        if (serial_display_state != SERIAL_STATE_WAITING) {
-            dispPrint((char *)"Waiting", 1);
-        }
-        serial_display_state = SERIAL_STATE_WAITING;
-        serial_state_timestamp = Time_Sequence;
-        return;
-    }
+	char buffer[SERIAL_MAX_CMD_LEN + 1u];
+	unsigned char i;
+	for (i = 0; i < command_length; i++) {
+		buffer[i] = command_buffer[i];
+	}
+	buffer[command_length] = '\0';
 
-    dispPrint((char *)"Transmit", 1);
-    Serial_DisplayRawLine(1u, serial_display_buf, SERIAL_MESSAGE_LEN);
-    Serial_DisplayClearLine(3u);
-
-    for (i = 0; i < serial_payload_len; i++) {
-        while (!(UCA1IFG & UCTXIFG)) {
-            /* wait */
-        }
-        UCA1TXBUF = serial_payload[i];
-    }
-    while (!(UCA1IFG & UCTXIFG)) {
-        /* wait */
-    }
-    UCA1TXBUF = '\r';
-    while (!(UCA1IFG & UCTXIFG)) {
-        /* wait */
-    }
-    UCA1TXBUF = '\n';
-
-    serial_command_available = 0u;
-    serial_payload_len = 0u;
-    serial_display_state = SERIAL_STATE_TRANSMIT;
-    serial_state_timestamp = Time_Sequence;
+	Serial_HandleCommand(buffer, command_length);
 }
 
-void Serial_Project8_ToggleBaud(void) {
-    serial_baud_mode = (serial_baud_mode == 1u) ? 2u : 1u;
+static void Serial_HandleCommand(const char *cmd, unsigned char len) {
+	if (!cmd || len == 0u) {
+		return;
+	}
 
-    Init_Serial_UCA0(serial_baud_mode);
-    Init_Serial_UCA1(serial_baud_mode);
+	if (len == 1u) {
+		char key = (char)toupper((unsigned char)cmd[0]);
+		switch (key) {
+			case '^':
+				Serial_WritePcLine("I'm here");
+				return;
+			case 'F':
+				Serial_SetIotBaud(SERIAL_BAUD_FAST);
+				Serial_WritePcLine("115200");
+				return;
+			case 'S':
+				Serial_SetIotBaud(SERIAL_BAUD_SLOW);
+				Serial_WritePcLine("9600");
+				return;
+			default:
+				break;
+		}
+	}
 
-    usb_rx_message_len = 0u;
+	if (len >= (SERIAL_AUTH_PIN_LEN + 2u)) {
+		if (strncmp(cmd, SERIAL_AUTH_PIN, SERIAL_AUTH_PIN_LEN) == 0) {
+			char direction = (char)toupper((unsigned char)cmd[SERIAL_AUTH_PIN_LEN]);
+			const char *duration_str = cmd + SERIAL_AUTH_PIN_LEN + 1u;
+			unsigned char digit_len = (unsigned char)strlen(duration_str);
+			unsigned int duration = Serial_ParseUnsigned(duration_str, digit_len);
 
-    Serial_ShowBaudOnLine3();
+			if ((duration == 0u) || (duration > 9999u)) {
+				Serial_WritePcLine("ERR invalid duration");
+				return;
+			}
 
-    if (serial_display_state != SERIAL_STATE_RECEIVED) {
-        dispPrint((char *)"Waiting", 1);
-        serial_display_state = SERIAL_STATE_WAITING;
-        serial_state_timestamp = Time_Sequence;
-    }
+			switch (direction) {
+				case 'F':
+				case 'B':
+				case 'L':
+				case 'R':
+					pending_motion_command.direction = direction;
+					pending_motion_command.duration  = (uint16_t)duration;
+					motion_command_pending = 1u;
+					Serial_WritePcLine("CMD accepted");
+					Serial_ShowBigCommand(direction, duration);
+					return;
+				default:
+					Serial_WritePcLine("ERR invalid direction");
+					return;
+			}
+		}
+	}
+
+	Serial_WritePcLine("ERR unknown command");
 }
 
-void Serial_Process_IOT_RX(void) {
-    while (iot_rx_rd != iot_rx_wr) {
-        (void)IOT_Ring_Rx[iot_rx_rd++];
-        if (iot_rx_rd >= sizeof(IOT_Ring_Rx)) {
-            iot_rx_rd = BEGINNING;
-        }
-    }
+static void Serial_SetIotBaud(serial_baud_t mode) {
+	if (mode != current_iot_baud) {
+		current_iot_baud = mode;
+		Serial_InitUCA0(current_iot_baud);
+	}
+	Serial_ShowBaudOnDisplay(current_iot_baud);
 }
 
+static void Serial_ShowBaudOnDisplay(serial_baud_t mode) {
+	(void)mode;
+	if (current_display_mode == SERIAL_DISPLAY_WIFI && !big_display_active) {
+		Serial_ShowWifiScreen();
+	}
+}
+
+static void Serial_ProcessIotChar(char c) {
+	if (pc_link_open) {
+		Serial_WritePcChar(c);
+	}
+
+	if (c == '\r') {
+		return;
+	}
+
+	if (c == '\n') {
+		if (iot_line_length > 0u) {
+			iot_line_buffer[iot_line_length] = '\0';
+			Serial_ProcessIotLine(iot_line_buffer);
+			iot_line_length = 0u;
+		}
+		return;
+	}
+
+	if (iot_line_length < (SERIAL_MAX_IOT_LINE_LEN - 1u)) {
+		iot_line_buffer[iot_line_length++] = c;
+	} else {
+		iot_line_length = 0u;   // overflow; reset buffer
+	}
+}
+
+static void Serial_ProcessIotLine(const char *line) {
+	if (!line || !*line) {
+		return;
+	}
+
+	if (strncmp(line, "+IPD,", 5) == 0) {
+		Serial_ParseIotPacket(line);
+		return;
+	}
+
+	if (strncmp(line, "+CWJAP:", 7) == 0) {
+		Serial_ParseWifiSsidLine(line);
+		return;
+	}
+
+	if (strncmp(line, "+CIFSR:", 7) == 0) {
+		Serial_ParseWifiIpLine(line);
+		return;
+	}
+
+	if (strcmp(line, "ready") == 0) {
+		Serial_HandleWifiReady();
+		return;
+	}
+}
+
+static void Serial_ParseWifiSsidLine(const char *line) {
+	const char *first_quote = strchr(line, '"');
+	if (!first_quote) {
+		return;
+	}
+	const char *second_quote = strchr(first_quote + 1, '"');
+	if (!second_quote) {
+		return;
+	}
+
+	size_t length = (size_t)(second_quote - first_quote - 1);
+	if (length > 10u) {
+		length = 10u;
+	}
+
+	memcpy(wifi_ssid, first_quote + 1, length);
+	wifi_ssid[length] = '\0';
+	wifi_ssid_valid = 1u;
+	Serial_RefreshWifiScreen();
+}
+
+static void Serial_ParseWifiIpLine(const char *line) {
+	if (!strstr(line, "STAIP") && !strstr(line, "APIP")) {
+		return;
+	}
+
+	const char *first_quote = strchr(line, '"');
+	if (!first_quote) {
+		return;
+	}
+	const char *second_quote = strchr(first_quote + 1, '"');
+	if (!second_quote) {
+		return;
+	}
+
+	size_t length = (size_t)(second_quote - first_quote - 1);
+	if (length >= sizeof(wifi_ip)) {
+		length = sizeof(wifi_ip) - 1u;
+	}
+
+	memcpy(wifi_ip, first_quote + 1, length);
+	wifi_ip[length] = '\0';
+	wifi_ip_valid = 1u;
+	Serial_RefreshWifiScreen();
+}
+
+static void Serial_HandleWifiReady(void) {
+	wifi_ssid_valid = 0u;
+	wifi_ip_valid = 0u;
+	Serial_RefreshWifiScreen();
+}
+
+static void Serial_ParseIotPacket(const char *line) {
+	const char *colon = strchr(line, ':');
+	if (!colon) {
+		return;
+	}
+
+	const char *payload = colon + 1;
+	if (!*payload) {
+		return;
+	}
+
+	Serial_HandleIotPayload(payload);
+}
+
+static void Serial_HandleIotPayload(const char *payload) {
+	char clean[64];
+	unsigned int idx = 0u;
+
+	while (payload[idx] && payload[idx] != '\r' && payload[idx] != '\n' && idx < (sizeof(clean) - 1u)) {
+		clean[idx] = payload[idx];
+		idx++;
+	}
+	clean[idx] = '\0';
+
+	char *start = clean;
+	while ((*start == ' ') || (*start == '\t')) {
+		start++;
+	}
+	if (*start == '\0') {
+		return;
+	}
+
+	char *end = start + strlen(start);
+	while ((end > start) && ((end[-1] == ' ') || (end[-1] == '\t'))) {
+		*--end = '\0';
+	}
+
+	Serial_ShowBigText(start);
+
+	if (*start == '^') {
+		const char *cmd_body = start + 1;
+		size_t cmd_size = strlen(cmd_body);
+		if ((cmd_size > 0u) && (cmd_size < 255u)) {
+			Serial_HandleCommand(cmd_body, (unsigned char)cmd_size);
+		} else {
+			Serial_WritePcLine("ERR remote command");
+		}
+	} else {
+		Serial_WritePcLine("RX message");
+		Serial_WritePcLine(start);
+	}
+}
+
+static void Serial_ShowBigCommand(char direction, unsigned int duration) {
+	char line[11];
+	char digits[6];
+	unsigned int idx = 0u;
+	unsigned int value = duration;
+
+	do {
+		digits[idx++] = (char)('0' + (value % 10u));
+		value /= 10u;
+	} while ((value > 0u) && (idx < sizeof(digits)));
+
+	unsigned int pos = 0u;
+	line[pos++] = direction;
+	line[pos++] = ' ';
+	while (idx > 0u && pos < (sizeof(line) - 1u)) {
+		line[pos++] = digits[--idx];
+	}
+	line[pos] = '\0';
+
+	Serial_ShowBigText(line);
+}
+
+static void Serial_TeardownBigCommand(void) {
+	Serial_ShowWaitingScreen();
+}
+
+static void Serial_ShowBigText(const char *text) {
+	if (!text || !*text) {
+		return;
+	}
+
+	char buffer[11];
+	unsigned int i = 0u;
+	while ((text[i] != '\0') && (i < (sizeof(buffer) - 1u))) {
+		buffer[i] = text[i];
+		i++;
+	}
+	buffer[i] = '\0';
+
+	lcd_BIG_mid();
+	lcd_out(buffer, 1, 0);
+
+	big_display_active = 1u;
+	big_display_timestamp = Time_Sequence;
+	current_display_mode = SERIAL_DISPLAY_BIG;
+}
+
+static void Serial_ShowWifiScreen(void) {
+	big_display_active = 0u;
+	current_display_mode = SERIAL_DISPLAY_WIFI;
+	display_mode_timestamp = Time_Sequence;
+
+	lcd_4line();
+
+	if (wifi_ssid_valid) {
+		dispPrint(wifi_ssid, 1);
+	} else {
+		dispPrint((char *)"SSID?", 1);
+	}
+
+	if (wifi_ip_valid) {
+		char line3[11];
+		char line4[11];
+		Serial_FormatIpForDisplay(line3, line4);
+		dispPrint((char *)"IP Addr", 2);
+		dispPrint(line3, 3);
+		dispPrint(line4, 4);
+	} else {
+		dispPrint((char *)"IP Addr", 2);
+		dispPrint((char *)"None", 3);
+		dispPrint((char *)"", 4);
+	}
+}
+
+static void Serial_RefreshWifiScreen(void) {
+	if (current_display_mode == SERIAL_DISPLAY_WIFI && !big_display_active) {
+		Serial_ShowWifiScreen();
+	}
+}
+
+static void Serial_ShowWaitingScreen(void) {
+	big_display_active = 0u;
+	current_display_mode = SERIAL_DISPLAY_WAITING;
+
+	lcd_4line();
+	dispPrint((char *)"Ohm Patel", 1);
+	dispPrint((char *)"", 2);
+	dispPrint((char *)"", 3);
+	dispPrint((char *)"", 4);
+}
+
+static void Serial_DisplayModeService(void) {
+	if (current_display_mode == SERIAL_DISPLAY_WIFI) {
+		unsigned int elapsed = Time_Sequence - display_mode_timestamp;
+		if (elapsed >= SERIAL_WIFI_DISPLAY_HOLD_TICKS) {
+			Serial_ShowWaitingScreen();
+		}
+	}
+}
+
+static void Serial_ServiceHeartbeat(void) {
+	if (!pc_link_open) {
+		return;
+	}
+
+	unsigned int elapsed = Time_Sequence - last_heartbeat_stamp;
+	if (elapsed >= SERIAL_HEARTBEAT_PERIOD_TICKS) {
+		last_heartbeat_stamp = Time_Sequence;
+		Serial_WritePcLine("FRAM heartbeat");
+	}
+}
+
+static unsigned int Serial_ParseUnsigned(const char *s, unsigned char len) {
+	unsigned int value = 0u;
+	unsigned char consumed = 0u;
+
+	while (consumed < len && s[consumed] != '\0') {
+		char c = s[consumed];
+		if ((c < '0') || (c > '9')) {
+			break;
+		}
+		value = (value * 10u) + (unsigned int)(c - '0');
+		consumed++;
+	}
+
+	if (consumed == 0u) {
+		return 0u;
+	}
+
+	return value;
+}
+
+static void Serial_SendIotString(const char *command) {
+	const char *ptr = command;
+	while (ptr && *ptr) {
+		Serial_WriteIotChar(*ptr++);
+	}
+	Serial_WriteIotChar('\r');
+	Serial_WriteIotChar('\n');
+}
+
+static void Serial_FormatIpForDisplay(char *line3, char *line4) {
+	line3[0] = '\0';
+	line4[0] = '\0';
+
+	if (!wifi_ip_valid) {
+		return;
+	}
+
+	const char *first_dot = strchr(wifi_ip, '.');
+	if (!first_dot) {
+		strncpy(line3, wifi_ip, 10);
+		line3[10] = '\0';
+		return;
+	}
+
+	const char *second_dot = strchr(first_dot + 1, '.');
+	if (!second_dot) {
+		strncpy(line3, wifi_ip, 10);
+		line3[10] = '\0';
+		return;
+	}
+
+	size_t len_first = (size_t)(second_dot - wifi_ip);
+	if (len_first > 10u) {
+		len_first = 10u;
+	}
+	strncpy(line3, wifi_ip, len_first);
+	line3[len_first] = '\0';
+
+	const char *rest = second_dot + 1;
+	strncpy(line4, rest, 10);
+	line4[10] = '\0';
+}

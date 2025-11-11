@@ -19,7 +19,7 @@ extern volatile unsigned int Time_Sequence;
 extern volatile unsigned char display_changed;
 extern volatile unsigned char update_display;
 
-void Carlson_StateMachine(void){
+void StateMachine(void){
     switch(Time_Sequence){
       case 250:                        //
         if(one_time){

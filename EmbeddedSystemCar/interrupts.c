@@ -57,22 +57,11 @@ extern unsigned int IRChange;
 // Local ADC channel index for ISR rotation
 static volatile unsigned int ADCChannel = 0;
 
-// hw8
-// Match definition in serial.c so sizeof() is valid in this TU
+// Serial driver ring buffers (defined in serial.c)
 extern volatile char USB_Ring_Rx[SMALL_RING_SIZE];
-extern char iot_TX_buf[11];
-extern unsigned int iot_rx_wr;
-extern char IOT_Ring_Rx[11];
-extern volatile unsigned int iot_tx;
+extern volatile char IOT_Ring_Rx[LARGE_RING_SIZE];
 extern volatile unsigned int usb_rx_ring_wr;
-extern volatile unsigned int ncsu_index;
-extern volatile unsigned int localCounter;
-extern volatile unsigned int debounce_count1;
-extern volatile unsigned int debounce_count2;
-extern volatile unsigned int direct_iot;
-// A0 TX buffer symbols (defined in serial.c)
-extern char process_buffer[25];
-extern char pb_index;
+extern volatile unsigned int iot_rx_wr;
 
 
 
@@ -96,11 +85,7 @@ __interrupt void eUSCI_A0_ISR(void) {
             // No cross-forwarding; keep channels independent for loopback tests
             break;
         case 4: // TXIFG
-            UCA0TXBUF = process_buffer[pb_index];   // Send out next byte
-            process_buffer[pb_index++] = '\0';      // Null-out sent location
-            if (process_buffer[pb_index] == '\0') { // Command finished
-                UCA0IE &= ~UCTXIE;                  // Disable TX interrupt
-            }
+            UCA0IE &= ~UCTXIE; // No TX interrupt-driven queue in Project 09
             break;
         default:
             break;

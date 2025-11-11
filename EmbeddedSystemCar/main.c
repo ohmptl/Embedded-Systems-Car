@@ -117,7 +117,7 @@ void main(void){
     Init_LCD();                          // Initialize LCD
     // Init_ADC();                          // Initialize ADC
 
-    Serial_Project8_Init();
+    Serial_Project9_Init();
 
 
 //------------------------------------------------------------------------------
@@ -138,21 +138,21 @@ void main(void){
 }
 
 void update(void){
-    Serial_Process_USB_RX();
+    Serial_Project9_Service();
 
     Display_Process();
 
     if (sw1_press_event) {
         sw1_press_event = 0;
-        Serial_Project8_HandleTransmitRequest();
+        Serial_RequestWifiStatus();
     }
 
     if (sw2_press_event) {
         sw2_press_event = 0;
-        Serial_Project8_ToggleBaud();
+        Serial_RequestIpAddress();
     }
 
-    Carlson_StateMachine();
+    StateMachine();
     backlight_update();
     IR_Update();
     P3OUT ^= TEST_PROBE;            // Change State of TEST_PROBE OFF

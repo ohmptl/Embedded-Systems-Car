@@ -9,6 +9,6 @@
 #ifndef STATEMACHINE_H_
 #define STATEMACHINE_H_
 
-void Carlson_StateMachine(void);
+void StateMachine(void);
 
 #endif // STATEMACHINE_H_
