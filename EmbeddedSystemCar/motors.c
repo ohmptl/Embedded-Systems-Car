@@ -27,7 +27,10 @@ extern volatile unsigned char display_changed;
 //------------------------------------------------------------------------------
 
 void motorStop(void){
-    // Turn OFF ALL Motors
+    // Ensure PWM duty cycles are cleared before cutting power to protect FETs
+    PWM1_BOTH_OFF();
+
+    // Turn OFF ALL Motors (drive pins low as a secondary safeguard)
     P6OUT &= ~R_FORWARD;
     P6OUT &= ~L_FORWARD;
     P6OUT &= ~R_REVERSE;

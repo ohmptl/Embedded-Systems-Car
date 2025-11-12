@@ -23,6 +23,9 @@
 #define SERIAL_MAX_IOT_LINE_LEN            (96u)
 #define SERIAL_AUTH_PIN                    "2005"
 #define SERIAL_AUTH_PIN_LEN                ((unsigned char)(sizeof(SERIAL_AUTH_PIN) - 1u))
+#define SERIAL_TURN_DEGREES_PER_TICK       (18u)  // Approx. 90 deg/s at 0.2s per tick
+#define SERIAL_MAX_TURN_DEGREES            (360u) // Prevent spinning beyond a single rotation
+#define SERIAL_SERVER_SETUP_DELAY_TICKS    (5u)   // ~1 second delay between staged commands
 
 typedef enum {
 	SERIAL_BAUD_FAST = 1u,
@@ -69,6 +72,11 @@ typedef enum {
 static serial_display_mode_t current_display_mode = SERIAL_DISPLAY_WIFI;
 static unsigned int display_mode_timestamp = 0u;
 
+static unsigned char server_configured = 0u;
+static unsigned char server_setup_pending = 0u;
+static unsigned char server_setup_stage = 0u;
+static unsigned int server_setup_timestamp = 0u;
+
 extern volatile unsigned int Time_Sequence;
 
 // Forward declarations -------------------------------------------------------
@@ -102,6 +110,9 @@ static void Serial_TeardownBigCommand(void);
 static unsigned int Serial_ParseUnsigned(const char *s, unsigned char len);
 static void Serial_SendIotString(const char *command);
 static void Serial_FormatIpForDisplay(char *line3, char *line4);
+static uint8_t Serial_ConvertDurationToTicks(char direction, unsigned int raw_value, unsigned int *out_ticks);
+static void Serial_HandleWifiConnected(void);
+static void Serial_ServiceServerSetup(void);
 
 //------------------------------------------------------------------------------
 //  Public API
@@ -125,6 +136,10 @@ void Serial_Project9_Init(void) {
 
 	P3OUT |= IOT_EN_CPU;   // ensure module is released from reset
 	last_heartbeat_stamp = Time_Sequence;
+	server_configured = 0u;
+	server_setup_pending = 0u;
+	server_setup_stage = 0u;
+	server_setup_timestamp = Time_Sequence;
 	Serial_ShowWifiScreen();
 }
 
@@ -147,6 +162,7 @@ void Serial_Project9_Service(void) {
 
 	Serial_ServiceHeartbeat();
 	Serial_DisplayModeService();
+	Serial_ServiceServerSetup();
 }
 
 void Serial_RequestWifiStatus(void) {
@@ -360,7 +376,8 @@ static void Serial_HandleCommand(const char *cmd, unsigned char len) {
 			char direction = (char)toupper((unsigned char)cmd[SERIAL_AUTH_PIN_LEN]);
 			const char *duration_str = cmd + SERIAL_AUTH_PIN_LEN + 1u;
 			unsigned char expects_duration = 1u;
-			unsigned int duration = 0u;
+			unsigned int raw_value = 0u;
+			unsigned int duration_ticks = 0u;
 
 			switch (direction) {
 				case 'F':
@@ -383,9 +400,19 @@ static void Serial_HandleCommand(const char *cmd, unsigned char len) {
 					return;
 				}
 				unsigned char digit_len = (unsigned char)strlen(duration_str);
-				duration = Serial_ParseUnsigned(duration_str, digit_len);
-				if ((duration == 0u) || (duration > 9999u)) {
+				raw_value = Serial_ParseUnsigned(duration_str, digit_len);
+				if ((raw_value == 0u) || (raw_value > 9999u)) {
 					Serial_WritePcLine("ERR invalid duration");
+					return;
+				}
+				if ((direction == 'L') || (direction == 'R')) {
+					if (raw_value > SERIAL_MAX_TURN_DEGREES) {
+						Serial_WritePcLine("ERR turn angle");
+						return;
+					}
+				}
+				if (!Serial_ConvertDurationToTicks(direction, raw_value, &duration_ticks)) {
+					Serial_WritePcLine("ERR duration range");
 					return;
 				}
 			} else {
@@ -396,7 +423,7 @@ static void Serial_HandleCommand(const char *cmd, unsigned char len) {
 			}
 
 			pending_motion_command.direction = direction;
-			pending_motion_command.duration  = (uint16_t)duration;
+			pending_motion_command.duration  = (uint16_t)duration_ticks;
 			motion_command_pending = 1u;
 
 			if (direction == 'S') {
@@ -404,7 +431,7 @@ static void Serial_HandleCommand(const char *cmd, unsigned char len) {
 				Serial_ShowBigCommand(direction, 0u);
 			} else {
 				Serial_WritePcLine("CMD accepted");
-				Serial_ShowBigCommand(direction, duration);
+				Serial_ShowBigCommand(direction, raw_value);
 			}
 			return;
 		}
@@ -460,6 +487,11 @@ static void Serial_ProcessIotLine(const char *line) {
 
 	if (strncmp(line, "+IPD,", 5) == 0) {
 		Serial_ParseIotPacket(line);
+		return;
+	}
+
+	if ((strcmp(line, "WIFI CONNECTED") == 0) || (strcmp(line, "WIFI GOT IP") == 0)) {
+		Serial_HandleWifiConnected();
 		return;
 	}
 
@@ -529,6 +561,46 @@ static void Serial_HandleWifiReady(void) {
 	wifi_ssid_valid = 0u;
 	wifi_ip_valid = 0u;
 	Serial_RefreshWifiScreen();
+	server_configured = 0u;
+	server_setup_pending = 0u;
+	server_setup_stage = 0u;
+	server_setup_timestamp = Time_Sequence;
+}
+
+static void Serial_HandleWifiConnected(void) {
+	if (!server_configured) {
+		server_setup_stage = 1u;
+		server_setup_pending = 1u;
+		server_setup_timestamp = Time_Sequence;
+	}
+}
+
+static void Serial_ServiceServerSetup(void) {
+	if (!server_setup_pending) {
+		return;
+	}
+
+	unsigned int elapsed = Time_Sequence - server_setup_timestamp;
+	if (elapsed < SERIAL_SERVER_SETUP_DELAY_TICKS) {
+		return;
+	}
+
+	if (server_setup_stage == 1u) {
+		Serial_SendIotCommand("AT+CIPMUX=1");
+		server_setup_stage = 2u;
+		server_setup_timestamp = Time_Sequence;
+		return;
+	}
+
+	if (server_setup_stage == 2u) {
+		Serial_SendIotCommand("AT+CIPSERVER=1,8080");
+		server_setup_stage = 0u;
+		server_setup_pending = 0u;
+		server_configured = 1u;
+		return;
+	}
+
+	server_setup_pending = 0u;
 }
 
 static void Serial_ParseIotPacket(const char *line) {
@@ -676,6 +748,7 @@ static void Serial_ShowWaitingScreen(void) {
 	lcd_BIG_mid();  // Switch to BIG mode for centered "WAITING"
 	dispPrint((char *)"Ohm Patel", 1);
 	dispPrint((char *)"WAITING", 2);  // Show "WAITING" centered on line 2
+	dispPrint((char *)"ECE 306", 3);
 }
 
 static void Serial_DisplayModeService(void) {
@@ -733,6 +806,38 @@ static unsigned int Serial_ParseUnsigned(const char *s, unsigned char len) {
 	}
 
 	return value;
+}
+
+static uint8_t Serial_ConvertDurationToTicks(char direction, unsigned int raw_value, unsigned int *out_ticks) {
+	unsigned int ticks = 0u;
+
+	if (!out_ticks) {
+		return 0u;
+	}
+
+	switch (direction) {
+		case 'F':
+		case 'B':
+			ticks = raw_value * TICKS_PER_SECOND;
+			break;
+		case 'L':
+		case 'R':
+			ticks = (raw_value + (SERIAL_TURN_DEGREES_PER_TICK - 1u)) / SERIAL_TURN_DEGREES_PER_TICK;
+			break;
+		default:
+			return 0u;
+	}
+
+	if (ticks == 0u) {
+		ticks = 1u;
+	}
+
+	if (ticks > 0xFFFFu) {
+		return 0u;
+	}
+
+	*out_ticks = ticks;
+	return 1u;
 }
 
 static void Serial_SendIotString(const char *command) {

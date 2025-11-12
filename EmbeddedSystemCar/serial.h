@@ -13,7 +13,7 @@
 
 typedef struct {
 	char direction;       // 'F', 'B', 'L', 'R', etc.
-	uint16_t duration;    // Whole-second units from incoming command (0 when unused)
+	uint16_t duration;    // Scheduler ticks (0.2s each) computed from incoming command
 } serial_motion_command_t;
 
 void Serial_Project9_Init(void);

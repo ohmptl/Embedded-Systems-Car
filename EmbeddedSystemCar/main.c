@@ -124,7 +124,7 @@ void main(void){
 //------------------------------------------------------------------------------
 // Begining of the "While" Operating System
 //------------------------------------------------------------------------------
-    backlight = OFF;
+    backlight = ON;
     IR = OFF;
     state = IDLE;
     motorStop();

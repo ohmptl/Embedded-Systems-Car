@@ -13,7 +13,8 @@
 typedef enum {
     MOVEMENT_IDLE = 0,
     MOVEMENT_EXECUTING,
-    MOVEMENT_COMPLETE
+    MOVEMENT_COMPLETE,
+    MOVEMENT_COOLDOWN
 } movement_state_t;
 
 // Function Prototypes
