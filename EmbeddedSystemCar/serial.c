@@ -355,33 +355,58 @@ static void Serial_HandleCommand(const char *cmd, unsigned char len) {
 		}
 	}
 
-	if (len >= (SERIAL_AUTH_PIN_LEN + 2u)) {
+	if (len >= (SERIAL_AUTH_PIN_LEN + 1u)) {
 		if (strncmp(cmd, SERIAL_AUTH_PIN, SERIAL_AUTH_PIN_LEN) == 0) {
 			char direction = (char)toupper((unsigned char)cmd[SERIAL_AUTH_PIN_LEN]);
 			const char *duration_str = cmd + SERIAL_AUTH_PIN_LEN + 1u;
-			unsigned char digit_len = (unsigned char)strlen(duration_str);
-			unsigned int duration = Serial_ParseUnsigned(duration_str, digit_len);
-
-			if ((duration == 0u) || (duration > 9999u)) {
-				Serial_WritePcLine("ERR invalid duration");
-				return;
-			}
+			unsigned char expects_duration = 1u;
+			unsigned int duration = 0u;
 
 			switch (direction) {
 				case 'F':
 				case 'B':
 				case 'L':
 				case 'R':
-					pending_motion_command.direction = direction;
-					pending_motion_command.duration  = (uint16_t)duration;
-					motion_command_pending = 1u;
-					Serial_WritePcLine("CMD accepted");
-					Serial_ShowBigCommand(direction, duration);
-					return;
+					expects_duration = 1u;
+					break;
+				case 'S':
+					expects_duration = 0u;
+					break;
 				default:
 					Serial_WritePcLine("ERR invalid direction");
 					return;
 			}
+
+			if (expects_duration) {
+				if (*duration_str == '\0') {
+					Serial_WritePcLine("ERR missing duration");
+					return;
+				}
+				unsigned char digit_len = (unsigned char)strlen(duration_str);
+				duration = Serial_ParseUnsigned(duration_str, digit_len);
+				if ((duration == 0u) || (duration > 9999u)) {
+					Serial_WritePcLine("ERR invalid duration");
+					return;
+				}
+			} else {
+				if (*duration_str != '\0') {
+					Serial_WritePcLine("ERR stop syntax");
+					return;
+				}
+			}
+
+			pending_motion_command.direction = direction;
+			pending_motion_command.duration  = (uint16_t)duration;
+			motion_command_pending = 1u;
+
+			if (direction == 'S') {
+				Serial_WritePcLine("CMD stop");
+				Serial_ShowBigCommand(direction, 0u);
+			} else {
+				Serial_WritePcLine("CMD accepted");
+				Serial_ShowBigCommand(direction, duration);
+			}
+			return;
 		}
 	}
 
@@ -560,6 +585,11 @@ static void Serial_HandleIotPayload(const char *payload) {
 }
 
 static void Serial_ShowBigCommand(char direction, unsigned int duration) {
+	if (direction == 'S') {
+		Serial_ShowBigText("STOP");
+		return;
+	}
+
 	char line[11];
 	char digits[6];
 	unsigned int idx = 0u;
@@ -599,7 +629,7 @@ static void Serial_ShowBigText(const char *text) {
 	buffer[i] = '\0';
 
 	lcd_BIG_mid();
-	lcd_out(buffer, 2, 0);  // Display on line 2 (not line 1)
+	dispPrint((char *)buffer, 2);
 
 	big_display_active = 1u;
 	big_display_timestamp = Time_Sequence;
@@ -645,7 +675,7 @@ static void Serial_ShowWaitingScreen(void) {
 
 	lcd_BIG_mid();  // Switch to BIG mode for centered "WAITING"
 	dispPrint((char *)"Ohm Patel", 1);
-	lcd_out((char *)"WAITING", 2, 0);  // Show "WAITING" centered on line 2
+	dispPrint((char *)"WAITING", 2);  // Show "WAITING" centered on line 2
 }
 
 static void Serial_DisplayModeService(void) {
@@ -681,7 +711,7 @@ static void Serial_ServiceHeartbeat(void) {
 	unsigned int elapsed = Time_Sequence - last_heartbeat_stamp;
 	if (elapsed >= SERIAL_HEARTBEAT_PERIOD_TICKS) {
 		last_heartbeat_stamp = Time_Sequence;
-		Serial_WritePcLine("FRAM heartbeat");
+		Serial_WritePcLine("Dil Dhadakne Do");
 	}
 }
 
