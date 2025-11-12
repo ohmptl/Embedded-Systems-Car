@@ -19,6 +19,7 @@
 #include  "motors.h"
 #include  "display.h"
 #include  "serial.h"
+#include  "wheels.h"
 
 // Global Variables
 volatile char slow_input_down;
@@ -139,6 +140,7 @@ void main(void){
 
 void update(void){
     Serial_Project9_Service();
+    Wheels_Process();  // Process movement commands
 
     Display_Process();
 

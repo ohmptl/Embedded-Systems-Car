@@ -12,11 +12,12 @@
 #include "serial.h"
 #include "display.h"
 #include "functions.h"
+#include "wheels.h"
 #include <string.h>
 #include <ctype.h>
 
 #define SERIAL_HEARTBEAT_PERIOD_TICKS      (5u)   // ~1 second @ 0.2s tick
-#define SERIAL_BIG_DISPLAY_HOLD_TICKS      (5u)
+#define SERIAL_BIG_DISPLAY_HOLD_TICKS      (25u)  // ~5 seconds (increased from 5 to match wifi timeout)
 #define SERIAL_WIFI_DISPLAY_HOLD_TICKS     (25u)  // ~5 seconds
 #define SERIAL_MAX_CMD_LEN                 (32u)
 #define SERIAL_MAX_IOT_LINE_LEN            (96u)
@@ -598,7 +599,7 @@ static void Serial_ShowBigText(const char *text) {
 	buffer[i] = '\0';
 
 	lcd_BIG_mid();
-	lcd_out(buffer, 1, 0);
+	lcd_out(buffer, 2, 0);  // Display on line 2 (not line 1)
 
 	big_display_active = 1u;
 	big_display_timestamp = Time_Sequence;
@@ -642,11 +643,9 @@ static void Serial_ShowWaitingScreen(void) {
 	big_display_active = 0u;
 	current_display_mode = SERIAL_DISPLAY_WAITING;
 
-	lcd_4line();
+	lcd_BIG_mid();  // Switch to BIG mode for centered "WAITING"
 	dispPrint((char *)"Ohm Patel", 1);
-	dispPrint((char *)"", 2);
-	dispPrint((char *)"", 3);
-	dispPrint((char *)"", 4);
+	lcd_out((char *)"WAITING", 2, 0);  // Show "WAITING" centered on line 2
 }
 
 static void Serial_DisplayModeService(void) {
@@ -654,6 +653,22 @@ static void Serial_DisplayModeService(void) {
 		unsigned int elapsed = Time_Sequence - display_mode_timestamp;
 		if (elapsed >= SERIAL_WIFI_DISPLAY_HOLD_TICKS) {
 			Serial_ShowWaitingScreen();
+		}
+	}
+
+	// Restore "WAITING" screen after big display timeout
+	// BUT only if no command is currently executing
+	if (current_display_mode == SERIAL_DISPLAY_BIG && big_display_active) {
+		// Don't timeout if a command is still executing
+		if (Wheels_IsExecuting()) {
+			// Reset timestamp to keep display active during command execution
+			big_display_timestamp = Time_Sequence;
+		} else {
+			unsigned int elapsed = Time_Sequence - big_display_timestamp;
+			if (elapsed >= SERIAL_BIG_DISPLAY_HOLD_TICKS) {
+				big_display_active = 0u;
+				Serial_ShowWaitingScreen();
+			}
 		}
 	}
 }

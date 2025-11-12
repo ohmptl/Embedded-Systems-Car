@@ -199,6 +199,17 @@ void set_motor_speeds(unsigned int left_pwm, unsigned int right_pwm);
 void pivot_left_pwm(unsigned int speed);
 void pivot_right_pwm(unsigned int speed);
 
+// PWM1 motor control functions
+void PWM1_LEFT_FWD(void);
+void PWM1_RIGHT_FWD(void);
+void PWM1_BOTH_FWD(void);
+void PWM1_LEFT_OFF(void);
+void PWM1_RIGHT_OFF(void);
+void PWM1_BOTH_OFF(void);
+void PWM1_LEFT_REV(void);
+void PWM1_RIGHT_REV(void);
+void PWM1_BOTH_REV(void);
+
 //------------------------------------------------------------------------------
 #endif // FUNCTIONS_H_
 
