@@ -15,7 +15,7 @@
 #include  "states.h"
 #include  "motors.h"
 #include  "display.h"
-#include  "timersB0.h"
+#include  "timers.h"
 #include  "switch.h"
 #include  "ADC.h"
 #include  "IR.h"
@@ -28,15 +28,11 @@
 // External Globals
 extern volatile unsigned char update_display;
 
-volatile unsigned int Time_Sequence;
+volatile unsigned int timer200ms;
 extern char display_line[4][11];
 extern volatile unsigned char display_changed;
 extern unsigned int count_debounce_SW1;
 extern unsigned int count_debounce_SW2;
-
-// Timer display globals (Project 7)
-extern volatile unsigned int time_ticks_200ms;    // increments every 0.2s when running
-extern volatile unsigned char timer_running;      // 1 when counting, 0 when stopped
 
 // SW1 press event flag (Project 7)
 extern volatile unsigned char sw1_press_event;
@@ -101,8 +97,6 @@ __interrupt void eUSCI_A1_ISR(void) {
             break;
         case 2: // RXIFG
             usb_value = UCA1RXBUF;
-            // Debug: flash RED LED on each received byte to confirm RX path
-            P1OUT ^= RED_LED;
             USB_Ring_Rx[usb_rx_ring_wr++] = usb_value;
             if (usb_rx_ring_wr >= sizeof(USB_Ring_Rx)) {
                 usb_rx_ring_wr = BEGINNING;
@@ -127,16 +121,12 @@ __interrupt void eUSCI_A1_ISR(void) {
 // Timers
 #pragma vector = TIMER0_B0_VECTOR
 __interrupt void Timer0_B0_ISR(void){
-    //    ADC_Update = TRUE;
     //-----------------------------------------------------------------------------
     // TimerB0 0 Interrupt handler
     //---------------------------------------------------------------------------
+    //    ADC_Update = TRUE;
     update_display = TRUE;
-    Time_Sequence++;
-    // Increment 0.2s timer if enabled (Project 7)
-    if (timer_running && time_ticks_200ms < 4999) {
-        time_ticks_200ms++;
-    }
+    timer200ms++;
     TB0CCR0 += TB0CCR0_INTERVAL;
 }
 
@@ -203,7 +193,7 @@ __interrupt void TIMER0_B1_ISR(void){
 //     // TimerB3 0 Interrupt handler
 //     //---------------------------------------------------------------------------
 // //    update_display = TRUE;
-//     //    State_Sequence = Time_Sequence;
+//     //    State_Sequence = timer200ms;
 //     //    P6OUT ^= LCD_BACKLITE;
 //     TB3CCR0 += TB3CCR0_INTERVAL;
 // }

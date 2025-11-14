@@ -11,7 +11,7 @@
 #include  "LCD.h"
 #include  "macros.h"
 #include  "ports.h"
-#include  "timersB0.h"
+#include  "timers.h"
 #include  "display.h"
 
 extern volatile unsigned char display_changed;      // change tracker

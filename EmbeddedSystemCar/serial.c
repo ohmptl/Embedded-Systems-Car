@@ -77,7 +77,7 @@ static unsigned char server_setup_pending = 0u;
 static unsigned char server_setup_stage = 0u;
 static unsigned int server_setup_timestamp = 0u;
 
-extern volatile unsigned int Time_Sequence;
+extern volatile unsigned int timer200ms;
 
 // Forward declarations -------------------------------------------------------
 static void Serial_ResetRings(void);
@@ -135,11 +135,11 @@ void Serial_Project9_Init(void) {
 	Serial_InitUCA1();
 
 	P3OUT |= IOT_EN_CPU;   // ensure module is released from reset
-	last_heartbeat_stamp = Time_Sequence;
+	last_heartbeat_stamp = timer200ms;
 	server_configured = 0u;
 	server_setup_pending = 0u;
 	server_setup_stage = 0u;
-	server_setup_timestamp = Time_Sequence;
+	server_setup_timestamp = timer200ms;
 	Serial_ShowWifiScreen();
 }
 
@@ -298,7 +298,7 @@ static void Serial_ProcessUsbChar(char c) {
 	if (!pc_link_open) {
 		pc_link_open = 1u;
 		Serial_WritePcLine("FRAM link opened");
-		last_heartbeat_stamp = Time_Sequence;
+		last_heartbeat_stamp = timer200ms;
 	}
 
 	if (c == '\0') {
@@ -564,14 +564,14 @@ static void Serial_HandleWifiReady(void) {
 	server_configured = 0u;
 	server_setup_pending = 0u;
 	server_setup_stage = 0u;
-	server_setup_timestamp = Time_Sequence;
+	server_setup_timestamp = timer200ms;
 }
 
 static void Serial_HandleWifiConnected(void) {
 	if (!server_configured) {
 		server_setup_stage = 1u;
 		server_setup_pending = 1u;
-		server_setup_timestamp = Time_Sequence;
+		server_setup_timestamp = timer200ms;
 	}
 }
 
@@ -580,7 +580,7 @@ static void Serial_ServiceServerSetup(void) {
 		return;
 	}
 
-	unsigned int elapsed = Time_Sequence - server_setup_timestamp;
+	unsigned int elapsed = timer200ms - server_setup_timestamp;
 	if (elapsed < SERIAL_SERVER_SETUP_DELAY_TICKS) {
 		return;
 	}
@@ -588,7 +588,7 @@ static void Serial_ServiceServerSetup(void) {
 	if (server_setup_stage == 1u) {
 		Serial_SendIotCommand("AT+CIPMUX=1");
 		server_setup_stage = 2u;
-		server_setup_timestamp = Time_Sequence;
+		server_setup_timestamp = timer200ms;
 		return;
 	}
 
@@ -704,14 +704,14 @@ static void Serial_ShowBigText(const char *text) {
 	dispPrint((char *)buffer, 2);
 
 	big_display_active = 1u;
-	big_display_timestamp = Time_Sequence;
+	big_display_timestamp = timer200ms;
 	current_display_mode = SERIAL_DISPLAY_BIG;
 }
 
 static void Serial_ShowWifiScreen(void) {
 	big_display_active = 0u;
 	current_display_mode = SERIAL_DISPLAY_WIFI;
-	display_mode_timestamp = Time_Sequence;
+	display_mode_timestamp = timer200ms;
 
 	lcd_4line();
 
@@ -753,7 +753,7 @@ static void Serial_ShowWaitingScreen(void) {
 
 static void Serial_DisplayModeService(void) {
 	if (current_display_mode == SERIAL_DISPLAY_WIFI) {
-		unsigned int elapsed = Time_Sequence - display_mode_timestamp;
+		unsigned int elapsed = timer200ms - display_mode_timestamp;
 		if (elapsed >= SERIAL_WIFI_DISPLAY_HOLD_TICKS) {
 			Serial_ShowWaitingScreen();
 		}
@@ -765,9 +765,9 @@ static void Serial_DisplayModeService(void) {
 		// Don't timeout if a command is still executing
 		if (Wheels_IsExecuting()) {
 			// Reset timestamp to keep display active during command execution
-			big_display_timestamp = Time_Sequence;
+			big_display_timestamp = timer200ms;
 		} else {
-			unsigned int elapsed = Time_Sequence - big_display_timestamp;
+			unsigned int elapsed = timer200ms - big_display_timestamp;
 			if (elapsed >= SERIAL_BIG_DISPLAY_HOLD_TICKS) {
 				big_display_active = 0u;
 				Serial_ShowWaitingScreen();
@@ -781,9 +781,9 @@ static void Serial_ServiceHeartbeat(void) {
 		return;
 	}
 
-	unsigned int elapsed = Time_Sequence - last_heartbeat_stamp;
+	unsigned int elapsed = timer200ms - last_heartbeat_stamp;
 	if (elapsed >= SERIAL_HEARTBEAT_PERIOD_TICKS) {
-		last_heartbeat_stamp = Time_Sequence;
+		last_heartbeat_stamp = timer200ms;
 		Serial_WritePcLine("Dil Dhadakne Do");
 	}
 }

@@ -16,8 +16,6 @@
 //------------------------------------------------------------------------------
 void main(void);
 void update(void);
-void Project6(void);
-void Project7(void);
 
 //------------------------------------------------------------------------------
 // init.c
@@ -41,11 +39,8 @@ void Init_Timer_B1(void);
 void Init_Timer_B2(void);
 void Init_Timer_B3(void);
 
-void usleep(unsigned int usec);
-void usleep10(unsigned int usec);
 void five_msec_sleep(unsigned int msec);
-void measure_delay(void);
-void out_control_words(void);
+void sleep(unsigned int sec);
 
 //------------------------------------------------------------------------------
 // switch.c
@@ -54,21 +49,12 @@ __interrupt void Port4_ISR(void);
 __interrupt void Port2_ISR(void);
 __interrupt void switch_interrupt(void);
 
-void Init_Switches(void);
-void switch_control(void);
 void enable_switch_SW1(void);
 void enable_switch_SW2(void);
 void enable_switches(void);
 void disable_switch_SW1(void);
 void disable_switch_SW2(void);
 void disable_switches(void);
-void Switches_Process(void);
-void Init_Switch(void);
-void Switch_Process(void);
-void Switch1_Process(void);
-void Switch2_Process(void);
-void menu_act(void);
-void menu_select(void);
 
 //------------------------------------------------------------------------------
 // ADC.c
@@ -148,6 +134,7 @@ void LCD_iot_meassage_print(int nema_index);
 // stateMachine.c
 //------------------------------------------------------------------------------
 void StateMachine(void);
+void bootSequence(void);
 
 //------------------------------------------------------------------------------
 // ports.c

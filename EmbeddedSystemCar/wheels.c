@@ -16,7 +16,7 @@
 #include <string.h>
 
 // External globals
-extern volatile unsigned int Time_Sequence;
+extern volatile unsigned int timer200ms;
 extern char display_line[4][11];
 extern volatile unsigned char display_changed;
 
@@ -52,7 +52,7 @@ void Wheels_Process(void) {
     }
 
     if (current_movement_state == MOVEMENT_EXECUTING) {
-        unsigned int elapsed = Time_Sequence - movement_start_time;
+        unsigned int elapsed = timer200ms - movement_start_time;
         if (elapsed >= movement_duration_ticks) {
             Wheels_StopMovement();
             if (queued_command_valid) {
@@ -62,7 +62,7 @@ void Wheels_Process(void) {
     }
 
     if (current_movement_state == MOVEMENT_COOLDOWN) {
-        unsigned int elapsed = Time_Sequence - cooldown_start_time;
+        unsigned int elapsed = timer200ms - cooldown_start_time;
         if (elapsed >= DIRECTION_CHANGE_COOLDOWN_TICKS) {
             current_movement_state = MOVEMENT_IDLE;
             if (queued_command_valid) {
@@ -94,7 +94,7 @@ static void Wheels_ExecuteMovement(char direction, unsigned int duration_ticks) 
     }
 
     current_movement_state = MOVEMENT_EXECUTING;
-    movement_start_time = Time_Sequence;
+    movement_start_time = timer200ms;
     movement_duration_ticks = ticks;
     current_direction = direction;
     queued_command_valid = 0u;  // any queued command is now the active one
@@ -249,6 +249,6 @@ static void Wheels_HandleIncomingCommand(const serial_motion_command_t *cmd) {
 //  Description: Insert a short pause before reversing motor direction
 //------------------------------------------------------------------------------
 static void Wheels_EnterCooldown(void) {
-    cooldown_start_time = Time_Sequence;
+    cooldown_start_time = timer200ms;
     current_movement_state = MOVEMENT_COOLDOWN;
 }

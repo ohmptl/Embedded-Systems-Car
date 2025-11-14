@@ -9,6 +9,6 @@
 #ifndef STATEMACHINE_H_
 #define STATEMACHINE_H_
 
-void StateMachine(void);
+void bootSequence(void);
 
 #endif // STATEMACHINE_H_

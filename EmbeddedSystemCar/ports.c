@@ -302,8 +302,8 @@ void Init_Port6(void){
     // Configure P6.4 (LCD_BACKLITE) for PWM - TB3.5
     P6SEL0 |= LCD_BACKLITE;
     P6SEL1 &= ~LCD_BACKLITE;
-    // P6OUT  |= LCD_BACKLITE;
-    P6DIR  |= LCD_BACKLITE;
+    P6OUT  &= ~LCD_BACKLITE;
+    P6DIR  &= ~LCD_BACKLITE;
 
     P6SEL0 &= ~P6_5;
     P6SEL1 &= ~P6_5;
