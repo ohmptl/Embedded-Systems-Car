@@ -13,14 +13,19 @@
 #include "display.h"
 #include "functions.h"
 #include "wheels.h"
+#include "motors.h"
 #include <string.h>
 #include <ctype.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 #define SERIAL_HEARTBEAT_PERIOD_TICKS      (5u)   // ~1 second @ 0.2s tick
 #define SERIAL_BIG_DISPLAY_HOLD_TICKS      (25u)  // ~5 seconds (increased from 5 to match wifi timeout)
 #define SERIAL_WIFI_DISPLAY_HOLD_TICKS     (25u)  // ~5 seconds
 #define SERIAL_MAX_CMD_LEN                 (32u)
 #define SERIAL_MAX_IOT_LINE_LEN            (96u)
+#define SERIAL_MAX_HTTP_PAYLOAD            (512u)
+#define SERIAL_HTTP_HEADER_MAX             (256u)
 #define SERIAL_AUTH_PIN                    "2005"
 #define SERIAL_AUTH_PIN_LEN                ((unsigned char)(sizeof(SERIAL_AUTH_PIN) - 1u))
 #define SERIAL_TURN_DEGREES_PER_TICK       (18u)  // Approx. 90 deg/s at 0.2s per tick
@@ -77,6 +82,13 @@ static unsigned char server_setup_pending = 0u;
 static unsigned char server_setup_stage = 0u;
 static unsigned int server_setup_timestamp = 0u;
 
+static unsigned char ipd_active = 0u;
+static unsigned char ipd_link_id = 0u;
+static unsigned int ipd_expected_length = 0u;
+static unsigned int ipd_bytes_captured = 0u;
+static unsigned char ipd_overflow = 0u;
+static char ipd_payload_buffer[SERIAL_MAX_HTTP_PAYLOAD + 1u];
+
 extern volatile unsigned int timer200ms;
 
 // Forward declarations -------------------------------------------------------
@@ -102,17 +114,32 @@ static void Serial_RefreshWifiScreen(void);
 static void Serial_ShowWaitingScreen(void);
 static void Serial_DisplayModeService(void);
 static void Serial_ServiceHeartbeat(void);
-static void Serial_ParseIotPacket(const char *line);
-static void Serial_HandleIotPayload(const char *payload);
 static void Serial_ShowBigText(const char *text);
 static void Serial_ShowBigCommand(char direction, unsigned int duration);
-static void Serial_TeardownBigCommand(void);
 static unsigned int Serial_ParseUnsigned(const char *s, unsigned char len);
 static void Serial_SendIotString(const char *command);
 static void Serial_FormatIpForDisplay(char *line3, char *line4);
 static uint8_t Serial_ConvertDurationToTicks(char direction, unsigned int raw_value, unsigned int *out_ticks);
 static void Serial_HandleWifiConnected(void);
 static void Serial_ServiceServerSetup(void);
+static void Serial_HandleIpdLine(const char *line);
+static void Serial_BeginIpdCapture(unsigned char link_id, unsigned int payload_length, const char *initial_payload);
+static void Serial_CaptureIpdByte(char c);
+static void Serial_FinalizeIpdCapture(void);
+static void Serial_DispatchIpdPayload(unsigned char link_id, const char *payload, unsigned int length, unsigned char truncated);
+static uint8_t Serial_IsHttpRequest(const char *payload);
+static void Serial_HandleHttpRequest(unsigned char link_id, char *payload, unsigned int length);
+static void Serial_SendHttpResponse(unsigned char link_id, const char *status_line, const char *content_type, const char *body);
+static void Serial_SendHttpJson(unsigned char link_id, const char *status_line, const char *json_body);
+static void Serial_SendHttpNoContent(unsigned char link_id);
+static void Serial_CloseHttpSocket(unsigned char link_id);
+static void Serial_WriteIotBuffer(const char *data, unsigned int length);
+static void Serial_HandleJoystickApi(unsigned char link_id, const char *headers, const char *body, unsigned int body_length);
+static unsigned int Serial_ParseContentLength(const char *headers);
+static uint8_t Serial_HasFormContentType(const char *headers);
+static uint8_t Serial_ParseFormInt(const char *body, const char *key, int *value_out);
+static void Serial_HandleHttpHealth(unsigned char link_id);
+static void Serial_Utoa(unsigned int value, char *buffer, unsigned int buffer_len);
 
 //------------------------------------------------------------------------------
 //  Public API
@@ -163,6 +190,7 @@ void Serial_Project9_Service(void) {
 	Serial_ServiceHeartbeat();
 	Serial_DisplayModeService();
 	Serial_ServiceServerSetup();
+	Motor_JoystickFailsafeService();
 }
 
 void Serial_RequestWifiStatus(void) {
@@ -460,15 +488,27 @@ static void Serial_ProcessIotChar(char c) {
 		Serial_WritePcChar(c);
 	}
 
+	if (ipd_active) {
+		Serial_CaptureIpdByte(c);
+		return;
+	}
+
 	if (c == '\r') {
+		if (ipd_active) {
+			Serial_CaptureIpdByte(c);
+		}
 		return;
 	}
 
 	if (c == '\n') {
 		if (iot_line_length > 0u) {
 			iot_line_buffer[iot_line_length] = '\0';
+			uint8_t was_ipd_header = (strncmp(iot_line_buffer, "+IPD,", 5) == 0) ? 1u : 0u;
 			Serial_ProcessIotLine(iot_line_buffer);
 			iot_line_length = 0u;
+			if (was_ipd_header && ipd_active && (ipd_bytes_captured < ipd_expected_length)) {
+				Serial_CaptureIpdByte('\n');
+			}
 		}
 		return;
 	}
@@ -486,7 +526,7 @@ static void Serial_ProcessIotLine(const char *line) {
 	}
 
 	if (strncmp(line, "+IPD,", 5) == 0) {
-		Serial_ParseIotPacket(line);
+		Serial_HandleIpdLine(line);
 		return;
 	}
 
@@ -603,41 +643,88 @@ static void Serial_ServiceServerSetup(void) {
 	server_setup_pending = 0u;
 }
 
-static void Serial_ParseIotPacket(const char *line) {
-	const char *colon = strchr(line, ':');
-	if (!colon) {
+static void Serial_HandleIpdLine(const char *line) {
+	const char *cursor = line + 5; // Skip "+IPD,"
+	char *endptr = NULL;
+	unsigned long link_id = strtoul(cursor, &endptr, 10);
+	if ((endptr == cursor) || (*endptr != ',')) {
 		return;
 	}
-
-	const char *payload = colon + 1;
-	if (!*payload) {
+	cursor = endptr + 1;
+	unsigned long payload_length = strtoul(cursor, &endptr, 10);
+	if (*endptr != ':') {
 		return;
 	}
-
-	Serial_HandleIotPayload(payload);
+	cursor = endptr + 1;
+	Serial_BeginIpdCapture((unsigned char)link_id, (unsigned int)payload_length, cursor);
 }
 
-static void Serial_HandleIotPayload(const char *payload) {
-	char clean[64];
-	unsigned int idx = 0u;
+static void Serial_BeginIpdCapture(unsigned char link_id, unsigned int payload_length, const char *initial_payload) {
+	ipd_active = 1u;
+	ipd_link_id = link_id;
+	ipd_expected_length = payload_length;
+	ipd_bytes_captured = 0u;
+	ipd_overflow = 0u;
 
-	while (payload[idx] && payload[idx] != '\r' && payload[idx] != '\n' && idx < (sizeof(clean) - 1u)) {
-		clean[idx] = payload[idx];
-		idx++;
-	}
-	clean[idx] = '\0';
-
-	char *start = clean;
-	while ((*start == ' ') || (*start == '\t')) {
-		start++;
-	}
-	if (*start == '\0') {
+	if (payload_length == 0u) {
+		Serial_FinalizeIpdCapture();
 		return;
 	}
 
-	char *end = start + strlen(start);
-	while ((end > start) && ((end[-1] == ' ') || (end[-1] == '\t'))) {
-		*--end = '\0';
+	while (*initial_payload != '\0') {
+		Serial_CaptureIpdByte(*initial_payload++);
+		if (!ipd_active) {
+			return;
+		}
+	}
+}
+
+static void Serial_CaptureIpdByte(char c) {
+	if (!ipd_active) {
+		return;
+	}
+
+	if (ipd_bytes_captured < ipd_expected_length) {
+		if (ipd_bytes_captured < SERIAL_MAX_HTTP_PAYLOAD) {
+			ipd_payload_buffer[ipd_bytes_captured] = c;
+		} else {
+			ipd_overflow = 1u;
+		}
+		ipd_bytes_captured++;
+	}
+
+	if (ipd_bytes_captured >= ipd_expected_length) {
+		Serial_FinalizeIpdCapture();
+	}
+}
+
+static void Serial_FinalizeIpdCapture(void) {
+	unsigned int safe_length = ipd_bytes_captured;
+	if (safe_length >= SERIAL_MAX_HTTP_PAYLOAD) {
+		safe_length = SERIAL_MAX_HTTP_PAYLOAD - 1u;
+	}
+	ipd_payload_buffer[safe_length] = '\0';
+	Serial_DispatchIpdPayload(ipd_link_id, ipd_payload_buffer, ipd_bytes_captured, ipd_overflow);
+	ipd_active = 0u;
+	ipd_expected_length = 0u;
+	ipd_bytes_captured = 0u;
+	ipd_overflow = 0u;
+}
+
+static void Serial_DispatchIpdPayload(unsigned char link_id, const char *payload, unsigned int length, unsigned char truncated) {
+	const char *start = payload;
+	while (*start == ' ' || *start == '\t' || *start == '\r' || *start == '\n') {
+		start++;
+	}
+
+	if (truncated) {
+		Serial_SendHttpJson(link_id, "HTTP/1.1 413 Payload Too Large", "{\"error\":\"payload too large\"}");
+		return;
+	}
+
+	if (Serial_IsHttpRequest(start)) {
+		Serial_HandleHttpRequest(link_id, ipd_payload_buffer, length);
+		return;
 	}
 
 	Serial_ShowBigText(start);
@@ -654,6 +741,404 @@ static void Serial_HandleIotPayload(const char *payload) {
 		Serial_WritePcLine("RX message");
 		Serial_WritePcLine(start);
 	}
+}
+
+static uint8_t Serial_IsHttpRequest(const char *payload) {
+	if (!payload) {
+		return 0u;
+	}
+	while (*payload == ' ' || *payload == '\t' || *payload == '\r' || *payload == '\n') {
+		payload++;
+	}
+	if (strncmp(payload, "GET ", 4) == 0) {
+		return 1u;
+	}
+	if (strncmp(payload, "POST ", 5) == 0) {
+		return 1u;
+	}
+	if (strncmp(payload, "OPTIONS ", 8) == 0) {
+		return 1u;
+	}
+	return 0u;
+}
+
+static void Serial_HandleHttpRequest(unsigned char link_id, char *payload, unsigned int length) {
+	if (!payload || (length == 0u)) {
+		Serial_SendHttpJson(link_id, "HTTP/1.1 400 Bad Request", "{\"error\":\"empty request\"}");
+		return;
+	}
+
+	char *line_end = strstr(payload, "\r\n");
+	if (!line_end) {
+		Serial_SendHttpJson(link_id, "HTTP/1.1 400 Bad Request", "{\"error\":\"malformed request\"}");
+		return;
+	}
+
+	char method[8];
+	char path[64];
+	const char *space1 = strchr(payload, ' ');
+	if (!space1 || (space1 >= line_end)) {
+		Serial_SendHttpJson(link_id, "HTTP/1.1 400 Bad Request", "{\"error\":\"missing path\"}");
+		return;
+	}
+	const char *space2 = strchr(space1 + 1, ' ');
+	if (!space2) {
+		Serial_SendHttpJson(link_id, "HTTP/1.1 400 Bad Request", "{\"error\":\"missing version\"}");
+		return;
+	}
+
+	size_t method_len = (size_t)(space1 - payload);
+	if (method_len >= sizeof(method)) {
+		method_len = sizeof(method) - 1u;
+	}
+	memcpy(method, payload, method_len);
+	method[method_len] = '\0';
+
+	size_t path_len = (size_t)(space2 - (space1 + 1));
+	if (path_len >= sizeof(path)) {
+		path_len = sizeof(path) - 1u;
+	}
+	memcpy(path, space1 + 1, path_len);
+	path[path_len] = '\0';
+	char *query = strchr(path, '?');
+	if (query) {
+		*query = '\0';
+	}
+
+	const char *headers_start = line_end + 2;
+	const char *body_marker = strstr(headers_start, "\r\n\r\n");
+	const char *body = body_marker ? (body_marker + 4) : (payload + length);
+	unsigned int header_len = body_marker ? (unsigned int)(body_marker - headers_start) : 0u;
+	unsigned int body_len = (unsigned int)((payload + length) - body);
+	if ((payload + length) < body) {
+		body_len = 0u;
+	}
+
+	char header_block[SERIAL_HTTP_HEADER_MAX];
+	if (header_len >= (SERIAL_HTTP_HEADER_MAX - 1u)) {
+		header_len = SERIAL_HTTP_HEADER_MAX - 1u;
+	}
+	memcpy(header_block, headers_start, header_len);
+	header_block[header_len] = '\0';
+
+	if (strcmp(method, "OPTIONS") == 0) {
+		Serial_SendHttpNoContent(link_id);
+		return;
+	}
+
+	if ((strcmp(method, "GET") == 0) && (strcmp(path, "/health") == 0)) {
+		Serial_HandleHttpHealth(link_id);
+		return;
+	}
+
+	if ((strcmp(method, "GET") == 0) && (strcmp(path, "/") == 0)) {
+		Serial_SendHttpJson(link_id, "HTTP/1.1 200 OK",
+			"{\"message\":\"Joystick API ready\",\"endpoints\":[\"/api/joystick\",\"/health\"]}");
+		return;
+	}
+
+	if ((strcmp(method, "POST") == 0) && (strncmp(path, "/api/joystick", 13) == 0)) {
+		unsigned int declared_length = Serial_ParseContentLength(header_block);
+		if (declared_length > body_len) {
+			Serial_SendHttpJson(link_id, "HTTP/1.1 400 Bad Request", "{\"error\":\"body truncated\"}");
+			return;
+		}
+		Serial_HandleJoystickApi(link_id, header_block, body, declared_length);
+		return;
+	}
+
+	Serial_SendHttpJson(link_id, "HTTP/1.1 404 Not Found", "{\"error\":\"unknown path\"}");
+}
+
+static void Serial_SendHttpResponse(unsigned char link_id, const char *status_line, const char *content_type, const char *body) {
+	if (!status_line) {
+		status_line = "HTTP/1.1 200 OK";
+	}
+	if (!content_type) {
+		content_type = "text/plain; charset=utf-8";
+	}
+	if (!body) {
+		body = "";
+	}
+
+	unsigned int body_len = (unsigned int)strlen(body);
+	char header[256];
+	int header_len = snprintf(header, sizeof(header),
+		"%s\r\n"
+		"Content-Type: %s\r\n"
+		"Access-Control-Allow-Origin: *\r\n"
+		"Access-Control-Allow-Headers: Content-Type\r\n"
+		"Access-Control-Allow-Methods: POST, OPTIONS, GET\r\n"
+		"Connection: close\r\n"
+		"Content-Length: %d\r\n"
+		"\r\n",
+		status_line, content_type, (int)body_len);
+	if (header_len <= 0) {
+		return;
+	}
+
+	unsigned int total_len = (unsigned int)header_len + body_len;
+	char cmd[32];
+	int cmd_len = snprintf(cmd, sizeof(cmd), "AT+CIPSEND=%d,%d", (int)link_id, (int)total_len);
+	if (cmd_len <= 0) {
+		return;
+	}
+
+	Serial_SendIotString(cmd);
+	five_msec_sleep(1);
+	Serial_WriteIotBuffer(header, (unsigned int)header_len);
+	Serial_WriteIotBuffer(body, body_len);
+	five_msec_sleep(1);
+	Serial_CloseHttpSocket(link_id);
+}
+
+static void Serial_SendHttpJson(unsigned char link_id, const char *status_line, const char *json_body) {
+	Serial_SendHttpResponse(link_id, status_line, "application/json; charset=utf-8", json_body);
+}
+
+static void Serial_SendHttpNoContent(unsigned char link_id) {
+	char header[192];
+	int header_len = snprintf(header, sizeof(header),
+		"HTTP/1.1 204 No Content\r\n"
+		"Access-Control-Allow-Origin: *\r\n"
+		"Access-Control-Allow-Headers: Content-Type\r\n"
+		"Access-Control-Allow-Methods: POST, OPTIONS, GET\r\n"
+		"Connection: close\r\n"
+		"Content-Length: 0\r\n"
+		"\r\n");
+	if (header_len <= 0) {
+		return;
+	}
+	char cmd[32];
+	int cmd_len = snprintf(cmd, sizeof(cmd), "AT+CIPSEND=%d,%d", (int)link_id, (int)header_len);
+	if (cmd_len <= 0) {
+		return;
+	}
+	Serial_SendIotString(cmd);
+	five_msec_sleep(1);
+	Serial_WriteIotBuffer(header, (unsigned int)header_len);
+	five_msec_sleep(1);
+	Serial_CloseHttpSocket(link_id);
+}
+
+static void Serial_WriteIotBuffer(const char *data, unsigned int length) {
+	unsigned int i;
+	if (!data) {
+		return;
+	}
+	for (i = 0u; i < length; i++) {
+		Serial_WriteIotChar(data[i]);
+	}
+}
+
+static void Serial_CloseHttpSocket(unsigned char link_id) {
+	char cmd[20];
+	int len = snprintf(cmd, sizeof(cmd), "AT+CIPCLOSE=%d", (int)link_id);
+	if (len > 0) {
+		Serial_SendIotString(cmd);
+	}
+}
+
+static void Serial_HandleJoystickApi(unsigned char link_id, const char *headers, const char *body, unsigned int body_length) {
+	if (!body || (body_length == 0u)) {
+		Motor_ApplyJoystickVector(0, 0, 0u, NULL, NULL);
+		Serial_SendHttpJson(link_id, "HTTP/1.1 200 OK", "{\"status\":\"idle\"}");
+		return;
+	}
+
+	if (!Serial_HasFormContentType(headers)) {
+		Serial_SendHttpJson(link_id, "HTTP/1.1 415 Unsupported Media Type",
+			"{\"error\":\"use application/x-www-form-urlencoded\"}");
+		return;
+	}
+
+	char form_buffer[160];
+	unsigned int copy_len = body_length;
+	if (copy_len >= sizeof(form_buffer)) {
+		copy_len = sizeof(form_buffer) - 1u;
+	}
+	memcpy(form_buffer, body, copy_len);
+	form_buffer[copy_len] = '\0';
+
+	int x_val = 0;
+	int y_val = 0;
+	int active_flag = 0;
+	if (!Serial_ParseFormInt(form_buffer, "x", &x_val) ||
+		!Serial_ParseFormInt(form_buffer, "y", &y_val)) {
+		Serial_SendHttpJson(link_id, "HTTP/1.1 400 Bad Request", "{\"error\":\"missing axis\"}");
+		return;
+	}
+	if (!Serial_ParseFormInt(form_buffer, "active", &active_flag)) {
+		int abs_x = (x_val >= 0) ? x_val : -x_val;
+		int abs_y = (y_val >= 0) ? y_val : -y_val;
+		active_flag = ((abs_y > MOTOR_JOYSTICK_FORWARD_DEADBAND) ||
+			(abs_x > MOTOR_JOYSTICK_FORWARD_DEADBAND)) ? 1 : 0;
+	}
+
+	if (x_val > MOTOR_JOYSTICK_AXIS_SCALE) {
+		x_val = MOTOR_JOYSTICK_AXIS_SCALE;
+	}
+	if (x_val < -MOTOR_JOYSTICK_AXIS_SCALE) {
+		x_val = -MOTOR_JOYSTICK_AXIS_SCALE;
+	}
+	if (y_val > MOTOR_JOYSTICK_AXIS_SCALE) {
+		y_val = MOTOR_JOYSTICK_AXIS_SCALE;
+	}
+	if (y_val < -MOTOR_JOYSTICK_AXIS_SCALE) {
+		y_val = -MOTOR_JOYSTICK_AXIS_SCALE;
+	}
+
+	unsigned int applied_left = 0u;
+	unsigned int applied_right = 0u;
+	Motor_ApplyJoystickVector((int16_t)x_val, (int16_t)y_val, (active_flag != 0), &applied_left, &applied_right);
+
+	char response[192];
+	char left_str[8];
+	char right_str[8];
+	Serial_Utoa(applied_left, left_str, sizeof(left_str));
+	Serial_Utoa(applied_right, right_str, sizeof(right_str));
+	int len = snprintf(response, sizeof(response),
+		"{\"left\":%s,\"right\":%s,\"axis\":{\"x\":%d,\"y\":%d},\"engaged\":%d}",
+		left_str,
+		right_str,
+		x_val,
+		y_val,
+		(active_flag != 0));
+	if (len < 0) {
+		Serial_SendHttpJson(link_id, "HTTP/1.1 200 OK", "{\"status\":\"ok\"}");
+		return;
+	}
+	Serial_SendHttpJson(link_id, "HTTP/1.1 200 OK", response);
+}
+
+static unsigned int Serial_ParseContentLength(const char *headers) {
+	if (!headers) {
+		return 0u;
+	}
+	const char *marker = strstr(headers, "Content-Length:");
+	if (!marker) {
+		return 0u;
+	}
+	marker += strlen("Content-Length:");
+	while (*marker == ' ') {
+		marker++;
+	}
+	unsigned int value = 0u;
+	while ((*marker >= '0') && (*marker <= '9')) {
+		value = (value * 10u) + (unsigned int)(*marker - '0');
+		marker++;
+	}
+	return value;
+}
+
+static uint8_t Serial_HasFormContentType(const char *headers) {
+	if (!headers) {
+		return 0u;
+	}
+	const char *cursor = headers;
+	const char target[] = "application/x-www-form-urlencoded";
+	const unsigned int target_len = (unsigned int)(sizeof(target) - 1u);
+	unsigned int idx;
+	while ((cursor = strstr(cursor, "Content-Type")) != NULL) {
+		const char *colon = strchr(cursor, ':');
+		if (!colon) {
+			break;
+		}
+		colon++;
+		while (*colon == ' ') {
+			colon++;
+		}
+		unsigned int match = 1u;
+		idx = 0u;
+		while (idx < target_len) {
+			char lhs = (char)tolower((unsigned char)colon[idx]);
+			char rhs = target[idx];
+			if (lhs != rhs) {
+				match = 0u;
+				break;
+			}
+			idx++;
+		}
+		if (match) {
+			return 1u;
+		}
+		cursor = colon;
+	}
+	return 0u;
+}
+
+static uint8_t Serial_ParseFormInt(const char *body, const char *key, int *value_out) {
+	if (!body || !key) {
+		return 0u;
+	}
+	size_t key_len = strlen(key);
+	const char *cursor = body;
+	while (cursor && *cursor) {
+		if ((strncmp(cursor, key, key_len) == 0) && (cursor[key_len] == '=')) {
+			cursor += key_len + 1u;
+			int sign = 1;
+			if (*cursor == '-') {
+				sign = -1;
+				cursor++;
+			}
+			int value = 0;
+			uint8_t has_digit = 0u;
+			while ((*cursor >= '0') && (*cursor <= '9')) {
+				has_digit = 1u;
+				value = (value * 10) + (int)(*cursor - '0');
+				cursor++;
+			}
+			if (!has_digit) {
+				return 0u;
+			}
+			if (value_out) {
+				*value_out = value * sign;
+			}
+			return 1u;
+		}
+		cursor = strchr(cursor, '&');
+		if (cursor) {
+			cursor++;
+		}
+	}
+	return 0u;
+}
+
+static void Serial_Utoa(unsigned int value, char *buffer, unsigned int buffer_len) {
+	char digits[6];
+	unsigned int count = 0u;
+	unsigned int out_idx = 0u;
+
+	if (!buffer || (buffer_len == 0u)) {
+		return;
+	}
+
+	do {
+		digits[count++] = (char)('0' + (value % 10u));
+		value /= 10u;
+	} while ((value > 0u) && (count < (unsigned int)sizeof(digits)));
+
+	while ((count > 0u) && (out_idx < (buffer_len - 1u))) {
+		buffer[out_idx++] = digits[--count];
+	}
+	buffer[out_idx] = '\0';
+}
+
+static void Serial_HandleHttpHealth(unsigned char link_id) {
+	const char *ssid = wifi_ssid_valid ? wifi_ssid : "unknown";
+	const char *ip = wifi_ip_valid ? wifi_ip : "0.0.0.0";
+	char payload[192];
+	int len = snprintf(payload, sizeof(payload),
+		"{\"wifi\":{\"ssid\":\"%s\",\"ip\":\"%s\"},\"serverConfigured\":%d,\"failsafeTicks\":%d}",
+		ssid,
+		ip,
+		(int)server_configured,
+		(int)MOTOR_JOYSTICK_FAILSAFE_TICKS);
+	if (len < 0) {
+		Serial_SendHttpJson(link_id, "HTTP/1.1 200 OK", "{\"status\":\"ok\"}");
+		return;
+	}
+	Serial_SendHttpJson(link_id, "HTTP/1.1 200 OK", payload);
 }
 
 static void Serial_ShowBigCommand(char direction, unsigned int duration) {
@@ -681,10 +1166,6 @@ static void Serial_ShowBigCommand(char direction, unsigned int duration) {
 	line[pos] = '\0';
 
 	Serial_ShowBigText(line);
-}
-
-static void Serial_TeardownBigCommand(void) {
-	Serial_ShowWaitingScreen();
 }
 
 static void Serial_ShowBigText(const char *text) {

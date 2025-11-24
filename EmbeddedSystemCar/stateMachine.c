@@ -10,6 +10,7 @@
 
 #include "msp430.h"
 #include "ports.h"
+#include "functions.h"
 #include "stateMachine.h"
 
 extern volatile unsigned int timer200ms;
@@ -18,6 +19,7 @@ void bootSequence(void){
     P1OUT |= RED_LED;
     Init_Ports();         // Initialize Ports
     Init_Clocks();        // Initialize Clock System
+    Init_DAC();           // Configure SAC3-based DAC for power control
     sleep(100);           // Allow time for clocks to stabilize
     Init_Conditions();    // Initialize Variables and Initial Conditions
     Init_Timers();        // Initialize Timers

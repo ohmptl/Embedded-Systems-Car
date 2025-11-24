@@ -11,6 +11,8 @@
 #ifndef FUNCTIONS_H_
 #define FUNCTIONS_H_
 
+#include <stdint.h>
+
 //------------------------------------------------------------------------------
 // main.c
 //------------------------------------------------------------------------------
@@ -185,6 +187,9 @@ void safetyCheck(void);
 void set_motor_speeds(unsigned int left_pwm, unsigned int right_pwm);
 void pivot_left_pwm(unsigned int speed);
 void pivot_right_pwm(unsigned int speed);
+uint8_t Motor_ApplyJoystickVector(int16_t x_axis, int16_t y_axis, unsigned char engaged,
+								 unsigned int *applied_left_pwm, unsigned int *applied_right_pwm);
+void Motor_JoystickFailsafeService(void);
 
 // PWM1 motor control functions
 void PWM1_LEFT_FWD(void);
