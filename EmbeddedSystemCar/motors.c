@@ -39,6 +39,15 @@ static int16_t Motor_ClampSignedAxis(int32_t value);
 static uint8_t Motor_AxisIsActive(int16_t axis_value);
 static unsigned int Motor_ComputeSignedAxisPwm(int16_t axis_value);
 static void Motor_ApplyWheelAxis(int16_t axis_value, unsigned char is_left, unsigned int *applied_pwm);
+static void Motor_ApplyCarSteering(int16_t throttle_axis, int16_t steering_axis,
+                                   unsigned int *applied_left_pwm, unsigned int *applied_right_pwm);
+static void Motor_ApplyTankTurnAxis(int16_t steering_axis,
+                                   unsigned int *applied_left_pwm, unsigned int *applied_right_pwm);
+static unsigned int Motor_ComputeTurnInnerScale(unsigned int steering_magnitude);
+static void Motor_WriteForwardSpeeds(unsigned int left_pwm, unsigned int right_pwm,
+                                     unsigned int *applied_left_pwm, unsigned int *applied_right_pwm);
+static void Motor_WriteReverseSpeeds(unsigned int left_pwm, unsigned int right_pwm,
+                                     unsigned int *applied_left_pwm, unsigned int *applied_right_pwm);
 
 static volatile unsigned int joystick_last_update_tick = 0u;
 static volatile unsigned char joystick_active = 0u;
@@ -202,18 +211,19 @@ uint8_t Motor_ApplyJoystickVector(int16_t x_axis, int16_t y_axis, unsigned char 
         y_axis = (int16_t)(-MOTOR_JOYSTICK_AXIS_SCALE);
     }
 
-    int32_t left_sum = (int32_t)y_axis - (int32_t)x_axis;
-    int32_t right_sum = (int32_t)y_axis + (int32_t)x_axis;
-    int16_t left_axis = Motor_ClampSignedAxis(left_sum);
-    int16_t right_axis = Motor_ClampSignedAxis(right_sum);
+    uint8_t throttle_active = Motor_AxisIsActive(y_axis);
+    uint8_t steering_active = Motor_AxisIsActive(x_axis);
 
-    if (!Motor_AxisIsActive(left_axis) && !Motor_AxisIsActive(right_axis)) {
+    if (!throttle_active && !steering_active) {
         Motor_JoystickStopInternal();
         return 1u;
     }
 
-    Motor_ApplyWheelAxis(left_axis, 1u, applied_left_pwm);
-    Motor_ApplyWheelAxis(right_axis, 0u, applied_right_pwm);
+    if (throttle_active) {
+        Motor_ApplyCarSteering(y_axis, x_axis, applied_left_pwm, applied_right_pwm);
+    } else {
+        Motor_ApplyTankTurnAxis(x_axis, applied_left_pwm, applied_right_pwm);
+    }
 
     joystick_active = 1u;
     joystick_last_update_tick = timer200ms;
@@ -294,6 +304,118 @@ static void Motor_ApplyWheelAxis(int16_t axis_value, unsigned char is_left, unsi
 
     if (applied_pwm) {
         *applied_pwm = trimmed;
+    }
+}
+
+static void Motor_ApplyCarSteering(int16_t throttle_axis, int16_t steering_axis,
+                                   unsigned int *applied_left_pwm, unsigned int *applied_right_pwm) {
+    int16_t throttle_mag = (throttle_axis >= 0) ? throttle_axis : (int16_t)(-throttle_axis);
+    unsigned int normalized = Motor_NormalizeAxis(throttle_mag);
+    unsigned int base_pwm = Motor_ComputeBasePwm(normalized);
+
+    if (base_pwm == 0u) {
+        Motor_JoystickStopInternal();
+        return;
+    }
+
+    unsigned int left_pwm = base_pwm;
+    unsigned int right_pwm = base_pwm;
+    int16_t steering_mag_signed = (steering_axis >= 0) ? steering_axis : (int16_t)(-steering_axis);
+    unsigned int steering_mag = Motor_NormalizeAxis(steering_mag_signed);
+
+    if (steering_mag > MOTOR_JOYSTICK_FORWARD_DEADBAND) {
+        unsigned int inner_scale = Motor_ComputeTurnInnerScale(steering_mag);
+        if (steering_axis > 0) {
+            right_pwm = Motor_ComputeWheelPwm(base_pwm, inner_scale);
+        } else if (steering_axis < 0) {
+            left_pwm = Motor_ComputeWheelPwm(base_pwm, inner_scale);
+        }
+    }
+
+    if (throttle_axis >= 0) {
+        Motor_WriteForwardSpeeds(left_pwm, right_pwm, applied_left_pwm, applied_right_pwm);
+    } else {
+        Motor_WriteReverseSpeeds(left_pwm, right_pwm, applied_left_pwm, applied_right_pwm);
+    }
+}
+
+static void Motor_ApplyTankTurnAxis(int16_t steering_axis,
+                                   unsigned int *applied_left_pwm, unsigned int *applied_right_pwm) {
+    int32_t left_sum = -(int32_t)steering_axis;
+    int32_t right_sum = (int32_t)steering_axis;
+    int16_t left_axis = Motor_ClampSignedAxis(left_sum);
+    int16_t right_axis = Motor_ClampSignedAxis(right_sum);
+
+    if (!Motor_AxisIsActive(left_axis) && !Motor_AxisIsActive(right_axis)) {
+        Motor_JoystickStopInternal();
+        return;
+    }
+
+    Motor_ApplyWheelAxis(left_axis, 1u, applied_left_pwm);
+    Motor_ApplyWheelAxis(right_axis, 0u, applied_right_pwm);
+}
+
+static unsigned int Motor_ComputeTurnInnerScale(unsigned int steering_magnitude) {
+    if (steering_magnitude >= MOTOR_JOYSTICK_AXIS_SCALE) {
+        return MOTOR_JOYSTICK_TURN_MIN_SCALE;
+    }
+
+    unsigned long range = (unsigned long)(MOTOR_JOYSTICK_AXIS_SCALE - MOTOR_JOYSTICK_TURN_MIN_SCALE);
+    unsigned long scaled = (range * (unsigned long)steering_magnitude) / MOTOR_JOYSTICK_AXIS_SCALE;
+    unsigned long result = (unsigned long)MOTOR_JOYSTICK_AXIS_SCALE - scaled;
+
+    if (result < MOTOR_JOYSTICK_TURN_MIN_SCALE) {
+        result = MOTOR_JOYSTICK_TURN_MIN_SCALE;
+    }
+
+    return (unsigned int)result;
+}
+
+static void Motor_WriteForwardSpeeds(unsigned int left_pwm, unsigned int right_pwm,
+                                     unsigned int *applied_left_pwm, unsigned int *applied_right_pwm) {
+    if ((left_pwm > 0u) && (left_pwm < MOTOR_LEFT_SAFE_MIN_PWM)) {
+        left_pwm = MOTOR_LEFT_SAFE_MIN_PWM;
+    }
+    if ((right_pwm > 0u) && (right_pwm < MOTOR_RIGHT_SAFE_MIN_PWM)) {
+        right_pwm = MOTOR_RIGHT_SAFE_MIN_PWM;
+    }
+
+    apply_forward_trim(&left_pwm, &right_pwm);
+
+    LEFT_REVERSE_SPEED = PWM1_WHEEL_OFF;
+    RIGHT_REVERSE_SPEED = PWM1_WHEEL_OFF;
+    LEFT_FORWARD_SPEED = left_pwm;
+    RIGHT_FORWARD_SPEED = right_pwm;
+
+    if (applied_left_pwm) {
+        *applied_left_pwm = left_pwm;
+    }
+    if (applied_right_pwm) {
+        *applied_right_pwm = right_pwm;
+    }
+}
+
+static void Motor_WriteReverseSpeeds(unsigned int left_pwm, unsigned int right_pwm,
+                                     unsigned int *applied_left_pwm, unsigned int *applied_right_pwm) {
+    if ((left_pwm > 0u) && (left_pwm < MOTOR_LEFT_SAFE_MIN_PWM)) {
+        left_pwm = MOTOR_LEFT_SAFE_MIN_PWM;
+    }
+    if ((right_pwm > 0u) && (right_pwm < MOTOR_RIGHT_SAFE_MIN_PWM)) {
+        right_pwm = MOTOR_RIGHT_SAFE_MIN_PWM;
+    }
+
+    apply_reverse_trim(&left_pwm, &right_pwm);
+
+    LEFT_FORWARD_SPEED = PWM1_WHEEL_OFF;
+    RIGHT_FORWARD_SPEED = PWM1_WHEEL_OFF;
+    LEFT_REVERSE_SPEED = left_pwm;
+    RIGHT_REVERSE_SPEED = right_pwm;
+
+    if (applied_left_pwm) {
+        *applied_left_pwm = left_pwm;
+    }
+    if (applied_right_pwm) {
+        *applied_right_pwm = right_pwm;
     }
 }
 

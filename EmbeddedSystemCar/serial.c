@@ -633,7 +633,7 @@ static void Serial_ServiceServerSetup(void) {
 	}
 
 	if (server_setup_stage == 2u) {
-		Serial_SendIotCommand("AT+CIPSERVER=1,8080");
+		Serial_SendIotCommand("AT+CIPSERVER=1,7898");
 		server_setup_stage = 0u;
 		server_setup_pending = 0u;
 		server_configured = 1u;

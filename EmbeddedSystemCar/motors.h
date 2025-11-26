@@ -90,6 +90,7 @@ void PWM1_BOTH_REV(void);
 #define MOTOR_JOYSTICK_AXIS_SCALE       (1000)
 #define MOTOR_JOYSTICK_FORWARD_DEADBAND (40)      // 4% vertical deadband for idle
 #define MOTOR_JOYSTICK_FAILSAFE_TICKS   (5u)      // auto stop after 1s without updates
+#define MOTOR_JOYSTICK_TURN_MIN_SCALE   (0u)      // allow inner wheel to stop completely
 
 
 #endif // MOTORS_H_
