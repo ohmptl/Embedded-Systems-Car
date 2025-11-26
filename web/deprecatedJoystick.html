@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ECE 306 Car Joystick</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --accent: #2f80ed;
+      --bg: #0f172a;
+      --fg: #f8fafc;
+      --panel: #1e293b;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 1.5rem;
+    }
+
+    main {
+      width: min(960px, 100%);
+      background: var(--panel);
+      border-radius: 24px;
+      padding: 1.5rem;
+      box-shadow: 0 25px 60px rgba(15, 23, 42, 0.45);
+    }
+
+    h1 {
+      margin: 0 0 0.75rem;
+      font-size: 1.65rem;
+      letter-spacing: 0.03em;
+    }
+
+    .connection {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      align-items: center;
+      margin-bottom: 1.5rem;
+    }
+
+    label {
+      font-size: 0.95rem;
+      opacity: 0.85;
+    }
+
+    input[type="text"] {
+      flex: 1 1 280px;
+      padding: 0.65rem 0.85rem;
+      border-radius: 12px;
+      border: 1px solid rgba(148, 163, 184, 0.4);
+      background: rgba(15, 23, 42, 0.4);
+      color: inherit;
+      font-size: 0.95rem;
+    }
+
+    button {
+      background: var(--accent);
+      border: none;
+      color: white;
+      padding: 0.65rem 1.4rem;
+      border-radius: 999px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 120ms ease, opacity 120ms ease;
+    }
+
+    button:active {
+      transform: scale(0.97);
+      opacity: 0.85;
+    }
+
+    .status-text {
+      font-size: 0.9rem;
+      opacity: 0.75;
+    }
+
+    .joystick-section {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1.5rem;
+      align-items: center;
+    }
+
+    .joystick {
+      position: relative;
+      width: min(320px, 70vw);
+      aspect-ratio: 1 / 1;
+      margin: 0 auto;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(255,255,255,0.06) 0%, rgba(15,23,42,0.85) 70%);
+      border: 2px solid rgba(148, 163, 184, 0.4);
+      touch-action: none;
+      user-select: none;
+    }
+
+    .joystick::after {
+      content: "";
+      position: absolute;
+      inset: 15%;
+      border-radius: 50%;
+      border: 1px dashed rgba(148, 163, 184, 0.5);
+    }
+
+    .knob {
+      position: absolute;
+      width: 96px;
+      height: 96px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.35), rgba(59,130,246,0.8));
+      border: 2px solid rgba(255,255,255,0.25);
+      pointer-events: none;
+      transform: translate(-50%, -50%);
+      box-shadow: 0 12px 30px rgba(15,23,42, 0.6);
+    }
+
+    .readout {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      background: rgba(15, 23, 42, 0.65);
+      border-radius: 18px;
+      padding: 1.25rem;
+      border: 1px solid rgba(148, 163, 184, 0.25);
+    }
+
+    .readout h2 {
+      margin: 0;
+      font-size: 1.1rem;
+      letter-spacing: 0.04em;
+      opacity: 0.85;
+    }
+
+    .readout-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 0.75rem;
+    }
+
+    .tile {
+      background: rgba(46, 60, 87, 0.8);
+      border-radius: 12px;
+      padding: 0.75rem 0.85rem;
+      border: 1px solid rgba(148, 163, 184, 0.2);
+    }
+
+    .tile span {
+      display: block;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      opacity: 0.7;
+    }
+
+    .tile strong {
+      font-size: 1.35rem;
+      font-weight: 600;
+    }
+
+    .notes {
+      margin-top: 1.5rem;
+      font-size: 0.9rem;
+      line-height: 1.5;
+      opacity: 0.8;
+    }
+
+    a {
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 600;
+    }
+
+    @media (max-width: 640px) {
+      body {
+        padding: 1rem;
+      }
+      main {
+        border-radius: 16px;
+        padding: 1rem;
+      }
+      .joystick {
+        width: min(280px, 80vw);
+      }
+      .knob {
+        width: 80px;
+        height: 80px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Embedded Car Joystick</h1>
+    <p class="status-text">Use the on-screen stick or a paired PS4 controller. Push up/R2 to drive forward, pull down/L2 for reverse. Slide left/right or use analog sticks to steer.</p>
+    <section class="connection">
+      <label for="endpoint">Car endpoint:</label>
+      <input id="endpoint" type="text" value="http://192.168.4.1:8080" spellcheck="false" />
+      <button id="saveEndpoint" type="button">Save</button>
+      <span id="status" class="status-text">Idle</span>
+      <span id="gamepadStatus" class="status-text">Controller: Searching…</span>
+    </section>
+
+    <section class="joystick-section">
+      <div class="joystick" id="joystick">
+        <div class="knob" id="knob"></div>
+      </div>
+      <div class="readout">
+        <h2>Live Vector</h2>
+        <div class="readout-grid">
+          <div class="tile">
+            <span>X Axis</span>
+            <strong id="readoutX">0.00</strong>
+          </div>
+          <div class="tile">
+            <span>Y Axis</span>
+            <strong id="readoutY">0.00</strong>
+          </div>
+          <div class="tile">
+            <span>Left PWM</span>
+            <strong id="readoutLeft">0</strong>
+          </div>
+          <div class="tile">
+            <span>Right PWM</span>
+            <strong id="readoutRight">0</strong>
+          </div>
+        </div>
+        <small>Tip: Both touch and gamepad inputs share the same safety guardrails (deadband, anti-burnout pauses) before commands hit the MSP430.</small>
+      </div>
+    </section>
+
+    <section class="notes">
+      <strong>Calibration Log</strong>
+      <ul>
+        <li>Requests send <code>application/x-www-form-urlencoded</code> payloads: <code>x</code>, <code>y</code> (in thousandths) and <code>active</code>.</li>
+        <li>The MSP430 clamps PWM to the safe window defined in <code>motors.h</code>. You can retune those constants without touching this page.</li>
+        <li>Store this file locally (or serve over HTTPS) and point it at your car's IP (default <code>192.168.4.1:8080</code>).</li>
+        <li>Gamepad tuning lives in the script: adjust <code>GAMEPAD_MAPPING</code> for different button/axis slots and tweak the dead-zones (<code>TURN_DEADBAND</code>, <code>ROTATION_DEADBAND</code>, <code>TRIGGER_DEADBAND</code>) to taste.</li>
+      </ul>
+    </section>
+  </main>
+
+  <script>
+    const endpointInput = document.getElementById('endpoint');
+    const saveButton = document.getElementById('saveEndpoint');
+    const statusEl = document.getElementById('status');
+    const gamepadStatusEl = document.getElementById('gamepadStatus');
+    const joystickEl = document.getElementById('joystick');
+    const knobEl = document.getElementById('knob');
+    const readoutX = document.getElementById('readoutX');
+    const readoutY = document.getElementById('readoutY');
+    const readoutLeft = document.getElementById('readoutLeft');
+    const readoutRight = document.getElementById('readoutRight');
+
+    const STORAGE_KEY = 'ece306-car-endpoint';
+    const SEND_INTERVAL_MS = 90;
+    const AXIS_SCALE = 1000;
+    const SPEED_DEADBAND = 0.04;
+    // Dead-zones and trigger sensitivity (bump these if your sticks drift or feel twitchy).
+    const TURN_DEADBAND = 0.08;
+    const ROTATION_DEADBAND = 0.12;
+    const TRIGGER_DEADBAND = 0.05;
+    const CONTROL_UPDATE_EPSILON = 0.01;
+    const AXIS_COMMAND_EPSILON = 0.01;
+    const TURN_RESPONSE_GAIN = 1.35; // Amplify horizontal deflection to tighten turning radius.
+    const DIRECTION_CHANGE_PAUSE_MS = 220;
+
+    // PS4 (DualShock 4) mapping; tweak these indices if Android reports different slots.
+    const GAMEPAD_MAPPING = Object.freeze({
+      AXIS_LEFT_X: 0,
+      AXIS_LEFT_Y: 1,
+      AXIS_RIGHT_X: 2,
+      AXIS_RIGHT_Y: 3,
+      BUTTON_L2: 6,
+      BUTTON_R2: 7
+    });
+
+    let joystickState = { x: 0, y: 0, active: false };
+    let activePointerId = null;
+    let lastSentPayload = '';
+    const lastAxisCommand = { x: 0, y: 0, active: 0 };
+    let lastDirectionCommanded = 0;
+    let directionHoldUntil = 0;
+    let activeGamepadIndex = null;
+    let storedTurnOffset = 0; // Left-stick deflection cached as an arc-turn offset.
+
+    const controlSources = {
+      touch: createControlRecord(),
+      gamepad: createControlRecord()
+    };
+
+    updateControlRecord('touch', zeroVector(), false, true);
+    updateControlRecord('gamepad', zeroVector(), false, true);
+
+    function normalizeEndpoint(rawValue) {
+      const trimmed = rawValue.trim();
+      if (!trimmed) {
+        return '';
+      }
+      const hasScheme = /^https?:\/\//i.test(trimmed);
+      const base = hasScheme ? trimmed : `http://${trimmed}`;
+      return base.replace(/\/+$/, '');
+    }
+
+    const savedEndpoint = localStorage.getItem(STORAGE_KEY);
+    if (savedEndpoint) {
+      endpointInput.value = savedEndpoint;
+    } else {
+      endpointInput.value = normalizeEndpoint(endpointInput.value);
+    }
+
+    saveButton.addEventListener('click', () => {
+      const normalized = normalizeEndpoint(endpointInput.value);
+      endpointInput.value = normalized;
+      localStorage.setItem(STORAGE_KEY, normalized);
+      statusEl.textContent = 'Endpoint saved';
+      lastSentPayload = '';
+    });
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function monotonicNow() {
+      const hasPerf = typeof performance !== 'undefined' && typeof performance.now === 'function';
+      return hasPerf ? performance.now() : Date.now();
+    }
+
+    function applyDeadzone(value, threshold) {
+      return Math.abs(value) < threshold ? 0 : value;
+    }
+
+    function zeroVector() {
+      return { forward: 0, reverse: 0, turnOffset: 0, rotation: 0 };
+    }
+
+    function createControlRecord() {
+      return { vector: zeroVector(), engaged: false, updatedAt: 0 };
+    }
+
+    function cloneVector(vector) {
+      return {
+        forward: vector.forward,
+        reverse: vector.reverse,
+        turnOffset: vector.turnOffset,
+        rotation: vector.rotation
+      };
+    }
+
+    function updateControlRecord(source, vector, engaged, forceTimestamp = false) {
+      const record = controlSources[source];
+      const diff = Math.max(
+        Math.abs(vector.forward - record.vector.forward),
+        Math.abs(vector.reverse - record.vector.reverse),
+        Math.abs(vector.turnOffset - record.vector.turnOffset),
+        Math.abs(vector.rotation - record.vector.rotation)
+      );
+      record.vector = cloneVector(vector);
+      const changed = diff > CONTROL_UPDATE_EPSILON || record.engaged !== engaged || forceTimestamp;
+      record.engaged = engaged;
+      if (changed) {
+        record.updatedAt = monotonicNow();
+      }
+    }
+
+    // Conflict-resolution: whichever input source changed most recently while active wins.
+    function resolveControlVector() {
+      const touch = controlSources.touch;
+      const pad = controlSources.gamepad;
+      if (touch.engaged && pad.engaged) {
+        return touch.updatedAt >= pad.updatedAt ? cloneVector(touch.vector) : cloneVector(pad.vector);
+      }
+      if (touch.engaged) {
+        return cloneVector(touch.vector);
+      }
+      if (pad.engaged) {
+        return cloneVector(pad.vector);
+      }
+      return zeroVector();
+    }
+
+    function updateKnobPosition(normX, normY) {
+      const rect = joystickEl.getBoundingClientRect();
+      const radius = rect.width / 2;
+      const x = radius + normX * radius;
+      const y = radius - normY * radius;
+      knobEl.style.left = `${x}px`;
+      knobEl.style.top = `${y}px`;
+    }
+
+    function formatNumber(value) {
+      return value.toFixed(2);
+    }
+
+    function updateReadout(left = 0, right = 0) {
+      readoutX.textContent = formatNumber(joystickState.x);
+      readoutY.textContent = formatNumber(joystickState.y);
+      readoutLeft.textContent = left;
+      readoutRight.textContent = right;
+    }
+
+    function axisCommandsEqual(a, b) {
+      return (
+        Math.abs(a.x - b.x) < AXIS_COMMAND_EPSILON &&
+        Math.abs(a.y - b.y) < AXIS_COMMAND_EPSILON &&
+        a.active === b.active
+      );
+    }
+
+    function rememberAxisCommand(command) {
+      lastAxisCommand.x = command.x;
+      lastAxisCommand.y = command.y;
+      lastAxisCommand.active = command.active;
+    }
+
+    function syncTouchControl() {
+      const forward = joystickState.y > SPEED_DEADBAND ? clamp(joystickState.y, 0, 1) : 0;
+      const reverse = joystickState.y < -SPEED_DEADBAND ? clamp(-joystickState.y, 0, 1) : 0;
+      const turnOffset = Math.abs(joystickState.x) > TURN_DEADBAND ? clamp(joystickState.x, -1, 1) : 0;
+      const vector = { forward, reverse, turnOffset, rotation: 0 };
+      const engaged = forward > 0 || reverse > 0 || Math.abs(turnOffset) > TURN_DEADBAND;
+      joystickState.active = engaged;
+      updateControlRecord('touch', vector, engaged, true);
+    }
+
+    function resetJoystick() {
+      joystickState = { x: 0, y: 0, active: false };
+      updateKnobPosition(0, 0);
+      updateReadout(0, 0);
+      lastDirectionCommanded = 0;
+      directionHoldUntil = 0;
+      syncTouchControl();
+    }
+
+    function pointerToVector(event) {
+      const rect = joystickEl.getBoundingClientRect();
+      const radius = rect.width / 2;
+      const relativeX = event.clientX - rect.left - radius;
+      const relativeY = event.clientY - rect.top - radius;
+      const distance = Math.hypot(relativeX, relativeY);
+      const clippedDistance = Math.min(distance, radius);
+      const scale = distance === 0 ? 0 : clippedDistance / distance;
+      const dx = relativeX * scale;
+      const dy = relativeY * scale;
+      const normX = clamp(dx / radius, -1, 1);
+      const normY = clamp(-dy / radius, -1, 1);
+      joystickState.x = normX;
+      joystickState.y = normY;
+      joystickState.active = true;
+      updateKnobPosition(normX, normY);
+      syncTouchControl();
+    }
+
+    joystickEl.addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      joystickEl.setPointerCapture(event.pointerId);
+      activePointerId = event.pointerId;
+      pointerToVector(event);
+    });
+
+    joystickEl.addEventListener('pointermove', (event) => {
+      if (event.pointerId !== activePointerId) {
+        return;
+      }
+      pointerToVector(event);
+    });
+
+    function endPointer(event) {
+      if (event.pointerId !== activePointerId) {
+        return;
+      }
+      joystickEl.releasePointerCapture(event.pointerId);
+      activePointerId = null;
+      resetJoystick();
+    }
+
+    ['pointerup', 'pointercancel'].forEach((type) => {
+      joystickEl.addEventListener(type, endPointer);
+    });
+
+    function getAxisValue(pad, index, deadzone) {
+      if (!pad || !pad.axes || index >= pad.axes.length) {
+        return 0;
+      }
+      const raw = clamp(pad.axes[index], -1, 1);
+      return applyDeadzone(raw, deadzone);
+    }
+
+    function getTriggerValue(pad, index) {
+      if (!pad || !pad.buttons || index >= pad.buttons.length) {
+        return 0;
+      }
+      const value = clamp(pad.buttons[index].value, 0, 1);
+      return value > TRIGGER_DEADBAND ? value : 0;
+    }
+
+    function processGamepadInput(pad) {
+      storedTurnOffset = getAxisValue(pad, GAMEPAD_MAPPING.AXIS_LEFT_X, TURN_DEADBAND);
+      let forward = getTriggerValue(pad, GAMEPAD_MAPPING.BUTTON_R2);
+      let reverse = getTriggerValue(pad, GAMEPAD_MAPPING.BUTTON_L2);
+
+      if (forward > 0 && reverse > 0) {
+        // If both triggers are squeezed, keep only the stronger intent.
+        if (forward >= reverse) {
+          reverse = 0;
+        } else {
+          forward = 0;
+        }
+      }
+
+      const rotation = getAxisValue(pad, GAMEPAD_MAPPING.AXIS_RIGHT_X, ROTATION_DEADBAND);
+      const turnOffset = (forward > 0 || reverse > 0) ? storedTurnOffset : 0;
+      const engaged = forward > 0 || reverse > 0 || Math.abs(rotation) > ROTATION_DEADBAND;
+      const vector = { forward, reverse, turnOffset, rotation };
+      updateControlRecord('gamepad', vector, engaged);
+    }
+
+    function getActiveGamepad() {
+      if (typeof navigator === 'undefined' || typeof navigator.getGamepads !== 'function') {
+        return null;
+      }
+      const pads = navigator.getGamepads();
+      if (activeGamepadIndex !== null && pads[activeGamepadIndex]) {
+        return pads[activeGamepadIndex];
+      }
+      for (let i = 0; i < pads.length; i += 1) {
+        if (pads[i]) {
+          activeGamepadIndex = pads[i].index;
+          return pads[i];
+        }
+      }
+      return null;
+    }
+
+    function updateGamepadStatus(pad) {
+      if (!gamepadStatusEl) {
+        return;
+      }
+      if (!pad) {
+        gamepadStatusEl.textContent = 'Controller: Searching…';
+        gamepadStatusEl.removeAttribute('title');
+        return;
+      }
+      const state = controlSources.gamepad.engaged ? 'Active' : 'Connected';
+      const label = pad.id ? pad.id.split('(')[0].trim() : 'Gamepad';
+      gamepadStatusEl.textContent = `Controller: ${state}`;
+      gamepadStatusEl.title = `Detected as ${label}`;
+    }
+
+    function pollGamepad() {
+      const pad = getActiveGamepad();
+      if (pad) {
+        processGamepadInput(pad);
+        updateGamepadStatus(pad);
+      } else {
+        updateControlRecord('gamepad', zeroVector(), false);
+        updateGamepadStatus(null);
+      }
+      window.requestAnimationFrame(pollGamepad);
+    }
+
+    function computeAxisSolution(vector) {
+      const throttle = clamp(vector.forward - vector.reverse, -1, 1);
+      const hasThrottle = Math.abs(throttle) > SPEED_DEADBAND;
+      const wantsRotation = Math.abs(vector.rotation) > ROTATION_DEADBAND;
+      let axisX = 0;
+      let axisY = 0;
+
+      if (wantsRotation && !hasThrottle) {
+        // Pure tank turn request (right stick only).
+        axisX = clamp(vector.rotation, -1, 1);
+        axisY = 0;
+      } else if (hasThrottle) {
+        axisY = throttle;
+        const turn = Math.abs(vector.turnOffset) > TURN_DEADBAND
+          ? clamp(vector.turnOffset * TURN_RESPONSE_GAIN, -1, 1)
+          : 0;
+        axisX = turn;
+      } else {
+        axisX = 0;
+        axisY = 0;
+      }
+
+      const left = clamp(axisY - axisX, -1, 1);
+      const right = clamp(axisY + axisX, -1, 1);
+      return { axisX, axisY, left, right };
+    }
+
+    function motorsToAxes(left, right) {
+      return {
+        axisY: clamp((left + right) / 2, -1, 1),
+        axisX: clamp((right - left) / 2, -1, 1)
+      };
+    }
+
+    function enforceDirectionInterlock(left, right) {
+      const now = monotonicNow();
+      const avg = (left + right) / 2;
+      let requestedDirection = 0;
+      if (Math.abs(avg) > SPEED_DEADBAND) {
+        requestedDirection = avg > 0 ? 1 : -1;
+      }
+
+      if (
+        requestedDirection !== 0 &&
+        lastDirectionCommanded !== 0 &&
+        requestedDirection !== lastDirectionCommanded &&
+        directionHoldUntil <= now
+      ) {
+        // Pause before reversing the average current to protect the FETs.
+        directionHoldUntil = now + DIRECTION_CHANGE_PAUSE_MS;
+        lastDirectionCommanded = 0;
+      }
+
+      const coolingDown = directionHoldUntil > now;
+      if (coolingDown) {
+        return { left: 0, right: 0, coolingDown: true };
+      }
+
+      if (requestedDirection !== 0) {
+        lastDirectionCommanded = requestedDirection;
+      } else if (Math.abs(left) <= SPEED_DEADBAND && Math.abs(right) <= SPEED_DEADBAND) {
+        lastDirectionCommanded = 0;
+        directionHoldUntil = 0;
+      }
+
+      return { left, right, coolingDown: false };
+    }
+
+    function buildPayloadFromAxis(axisX, axisY) {
+      const active = Math.abs(axisY) > SPEED_DEADBAND || Math.abs(axisX) > TURN_DEADBAND;
+      return {
+        payload: new URLSearchParams({
+          x: Math.round(axisX * AXIS_SCALE),
+          y: Math.round(axisY * AXIS_SCALE),
+          active: active ? 1 : 0
+        }).toString(),
+        active
+      };
+    }
+
+    async function sendMotorCommands(axis, coolingDown = false) {
+      const endpoint = normalizeEndpoint(endpointInput.value);
+      if (!endpoint) {
+        return;
+      }
+
+      const { payload, active } = buildPayloadFromAxis(axis.axisX, axis.axisY);
+      const axisCommand = { x: axis.axisX, y: axis.axisY, active: active ? 1 : 0 };
+      const commandMatchesPrevious = axisCommandsEqual(axisCommand, lastAxisCommand);
+      const duplicateIdle = !active && !coolingDown && payload === lastSentPayload;
+      const duplicatePause = !active && coolingDown && payload === lastSentPayload;
+
+      if (duplicateIdle) {
+        rememberAxisCommand(axisCommand);
+        statusEl.textContent = 'Idle';
+        return;
+      }
+      if (duplicatePause) {
+        rememberAxisCommand(axisCommand);
+        statusEl.textContent = 'Direction pause';
+        return;
+      }
+
+      if (!coolingDown && commandMatchesPrevious && payload === lastSentPayload) {
+        statusEl.textContent = active ? 'Command sent' : 'Idle';
+        return;
+      }
+
+      rememberAxisCommand(axisCommand);
+      lastSentPayload = payload;
+
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 1000);
+        const response = await fetch(`${endpoint}/api/joystick`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: payload,
+          signal: controller.signal,
+          mode: 'cors'
+        });
+        clearTimeout(timeout);
+        if (!response.ok) {
+          statusEl.textContent = `HTTP ${response.status}`;
+          return;
+        }
+        const data = await response.json().catch(() => null);
+        if (data && typeof data.left === 'number' && typeof data.right === 'number') {
+          updateReadout(data.left, data.right);
+        }
+        statusEl.textContent = active ? 'Command sent' : (coolingDown ? 'Direction pause' : 'Idle');
+      } catch (error) {
+        if (error.name === 'AbortError') {
+          statusEl.textContent = 'Link error: timeout';
+        } else {
+          statusEl.textContent = `Link error: ${(error && error.message) || 'network failure'}`;
+        }
+      }
+    }
+
+    async function pushJoystickState() {
+      const controlVector = resolveControlVector();
+      const solution = computeAxisSolution(controlVector);
+      const enforced = enforceDirectionInterlock(solution.left, solution.right);
+      const finalAxes = enforced.coolingDown ? { axisX: 0, axisY: 0 } : motorsToAxes(enforced.left, enforced.right);
+      await sendMotorCommands(finalAxes, enforced.coolingDown);
+    }
+
+    const gamepadSupported = typeof navigator !== 'undefined' && typeof navigator.getGamepads === 'function';
+    if (gamepadSupported) {
+      window.addEventListener('gamepadconnected', (event) => {
+        activeGamepadIndex = event.gamepad.index;
+        updateGamepadStatus(event.gamepad);
+      });
+      window.addEventListener('gamepaddisconnected', (event) => {
+        if (activeGamepadIndex === event.gamepad.index) {
+          activeGamepadIndex = null;
+        }
+        updateGamepadStatus(null);
+      });
+      window.requestAnimationFrame(pollGamepad);
+    } else if (gamepadStatusEl) {
+      gamepadStatusEl.textContent = 'Controller: Unsupported';
+    }
+
+    setInterval(pushJoystickState, SEND_INTERVAL_MS);
+    resetJoystick();
+  </script>
+</body>
+</html>
