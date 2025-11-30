@@ -76,9 +76,9 @@ void PWM1_BOTH_REV(void);
 // 3) Adjust in small steps (5-10 counts) until the car tracks straight.
 // 4) Mirror the forward values to the reverse trims if backward motion also drifts.
 #define MOTOR_PWM_TRIM_SCALE        (1000u)
-#define MOTOR_LEFT_FORWARD_TRIM     (940u)   // 94% of requested PWM
+#define MOTOR_LEFT_FORWARD_TRIM     (880u)   // 90% of requested PWM to counter right drift
 #define MOTOR_RIGHT_FORWARD_TRIM    (1000u)  // 100% of requested PWM
-#define MOTOR_LEFT_REVERSE_TRIM     (940u)
+#define MOTOR_LEFT_REVERSE_TRIM     (950u)
 #define MOTOR_RIGHT_REVERSE_TRIM    (1000u)
 
 // Forward PWM safety window for proportional joystick control

@@ -221,6 +221,7 @@
     const TURN_DEADBAND = 0.08;
     const ROTATION_DEADBAND = 0.12;
     const TURN_RESPONSE_GAIN = 1.2;
+    const TANK_TURN_GAIN = 0.1; // Scale tank spins for finer control
     const DIRECTION_CHANGE_PAUSE_MS = 220;
 
     // --- State ---
@@ -336,8 +337,8 @@
 
       // Tank Mode (Right Stick)
       if (rightStickState.active && Math.abs(rightStickState.x) > ROTATION_DEADBAND) {
-        // Polarity: Positive X -> Right Spin
-        axisX = rightStickState.x;
+        // Tank spin: invert polarity and reduce gain for finer control
+        axisX = -rightStickState.x * TANK_TURN_GAIN;
         axisY = 0;
       }
       // Car Mode (Left Stick)
@@ -347,12 +348,12 @@
 
         if (Math.abs(throttle) > SPEED_DEADBAND) {
           axisY = throttle;
-          // Polarity: Negative X -> Right Turn (Inverted for Car Mode)
+          // Polarity: Positive X -> Right Turn to match car expectation
           // Gain: 1.2 for full pivot
           const turnVal = Math.abs(turn) > TURN_DEADBAND
             ? Math.max(-1, Math.min(1, turn * TURN_RESPONSE_GAIN))
             : 0;
-          axisX = -turnVal;
+          axisX = turnVal;
         }
       }
 
@@ -387,8 +388,8 @@
       const wantsRotation = Math.abs(rotation) > ROTATION_DEADBAND;
 
       if (wantsRotation && !hasThrottle) {
-        // Tank Turn
-        axisX = rotation; // Positive -> Right Spin
+        // Tank Turn (invert polarity and apply gain)
+        axisX = -rotation * TANK_TURN_GAIN;
         axisY = 0;
       } else if (hasThrottle) {
         // Car Mode
@@ -396,7 +397,7 @@
         const turnVal = Math.abs(turnOffset) > TURN_DEADBAND
           ? Math.max(-1, Math.min(1, turnOffset * TURN_RESPONSE_GAIN))
           : 0;
-        axisX = -turnVal; // Inverted -> Right Turn
+        axisX = turnVal; // Positive -> Right Turn
       }
 
       return { axisX, axisY };
