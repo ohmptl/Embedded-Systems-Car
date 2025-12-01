@@ -21,5 +21,6 @@ typedef enum {
 void Wheels_Process(void);
 movement_state_t Wheels_GetCurrentState(void);
 unsigned char Wheels_IsExecuting(void);
+void Wheels_ForceStop(void);
 
 #endif // WHEELS_H_

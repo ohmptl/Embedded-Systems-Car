@@ -184,6 +184,15 @@ static void Wheels_StopMovement(void) {
 }
 
 //------------------------------------------------------------------------------
+//  Function: Wheels_ForceStop
+//  Description: Immediately stop motors and clear any pending queue entries
+//------------------------------------------------------------------------------
+void Wheels_ForceStop(void) {
+    queued_command_valid = 0u;
+    Wheels_StopMovement();
+}
+
+//------------------------------------------------------------------------------
 //  Function: Wheels_GetCurrentState
 //  Description: Get current movement state (for debugging/monitoring)
 //------------------------------------------------------------------------------

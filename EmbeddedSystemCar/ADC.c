@@ -55,7 +55,7 @@ void Init_ADC(void){
 
   // ADCMCTL0 Register
   ADCMCTL0 |= ADCSREF_0;    // VREF 000b = {VR+ = AVCC and VR– = AVSS }
-  ADCMCTL0 |= ADCINCH_2;    // V_THUMB (0x20) Pin 5 A5
+  ADCMCTL0 |= ADCINCH_2;    // V_DETECT_L (0x04) Pin 2 A2
 
   ADCIE |= ADCIE0;          // Enable ADC conv complete interrupt
   ADCCTL0 |= ADCENC;        // ADC enable conversion.

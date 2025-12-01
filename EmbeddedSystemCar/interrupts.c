@@ -302,12 +302,6 @@ __interrupt void TIMER0_B1_ISR(void){
                 ADCLeft = ADCMEM0;                       // Move result into Global Values
                 ADCLeft = ADCLeft >> 2;                   // Divide the result by 4
 
-                // Display ADC on line 2 during calibration and normal operation
-                if(state != WAIT2 && state != BLACKLINE){
-                    HEXtoBCD(ADCLeft);
-                    dispPrint(adc_char,2);
-                }
-
                 break;
 
             case 0x01:                                   // Channel A3 (Right) Interrupt
@@ -316,13 +310,6 @@ __interrupt void TIMER0_B1_ISR(void){
 
                 ADCRight = ADCMEM0;                      // Move result into Global Values
                 ADCRight = ADCRight >> 2;                 // Divide the result by 4
-                
-                // Display on line 3 during calibration and normal operation
-                if(state != WAIT2 && state != BLACKLINE &&
-                   state != CIRCLING){  // Don't overwrite "Lap: X/2" in CIRCLING
-                    HEXtoBCD(ADCRight);
-                    dispPrint(adc_char,3);
-                }
 
                 break;
 

@@ -22,10 +22,10 @@ void bootSequence(void){
     Init_DAC();           // Configure SAC3-based DAC for power control
     sleep(100);           // Allow time for clocks to stabilize
     Init_Conditions();    // Initialize Variables and Initial Conditions
+    Init_ADC();           // Initialize ADC for IR sensors
     Init_Timers();        // Initialize Timers
     sleep(200);           // Allow time for timers to stabilize
     Init_LCD();           // Initialize LCD
-    // Init_ADC();          // Initialize ADC
     sleep(200);           // Allow time for LCD to stabilize
 
     P1OUT &= ~RED_LED;    // Turn OFF Red LED

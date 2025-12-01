@@ -20,6 +20,7 @@
 #include  "display.h"
 #include  "serial.h"
 #include  "wheels.h"
+#include  "IR.h"
 
 // Global Variables
 extern char display_line[4][11];
@@ -48,11 +49,12 @@ void main(void){
     bootSequence();
 
     backlight = ON;
-    IR = OFF;
+    IR = ON;
     state = IDLE;
     motorStop();
 
     Serial_Project9_Init();
+    IRLine_Init();
 
 //------------------------------------------------------------------------------
 // Begining of the "While" Operating System
@@ -78,6 +80,7 @@ void update(void){
     Wheels_Process();  // Process movement commands
     Display_Process();
     backlight_update();
+    IRLine_Service();
     IR_Update();
     P3OUT ^= TEST_PROBE;            // Change State of TEST_PROBE OFF
 }

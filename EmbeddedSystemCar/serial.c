@@ -14,6 +14,7 @@
 #include "functions.h"
 #include "wheels.h"
 #include "motors.h"
+#include "IR.h"
 #include <string.h>
 #include <ctype.h>
 #include <stdio.h>
@@ -90,6 +91,8 @@ static unsigned char ipd_overflow = 0u;
 static char ipd_payload_buffer[SERIAL_MAX_HTTP_PAYLOAD + 1u];
 
 extern volatile unsigned int timer200ms;
+extern volatile unsigned int ADCLeft;
+extern volatile unsigned int ADCRight;
 
 // Forward declarations -------------------------------------------------------
 static void Serial_ResetRings(void);
@@ -98,10 +101,14 @@ static void Serial_InitUCA1(void);
 static void Serial_WritePcChar(char c);
 static void Serial_WritePcString(const char *s);
 static void Serial_WritePcLine(const char *s);
+static void Serial_WritePcSamplePair(const char *prefix, unsigned int left_value, unsigned int right_value);
 static void Serial_WriteIotChar(char c);
 static void Serial_ProcessUsbChar(char c);
 static void Serial_FinalizeCommand(void);
+static void Serial_ProcessCommandBuffer(char *buffer, unsigned char length);
+static void Serial_ProcessCommandString(const char *buffer, unsigned int length);
 static void Serial_HandleCommand(const char *cmd, unsigned char len);
+static void Serial_HandleAuthorizedCommand(const char *payload, unsigned int length);
 static void Serial_SetIotBaud(serial_baud_t mode);
 static void Serial_ShowBaudOnDisplay(serial_baud_t mode);
 static void Serial_ProcessIotChar(char c);
@@ -112,6 +119,8 @@ static void Serial_HandleWifiReady(void);
 static void Serial_ShowWifiScreen(void);
 static void Serial_RefreshWifiScreen(void);
 static void Serial_ShowWaitingScreen(void);
+static void Serial_UpdateIrAdcLine(void);
+static void Serial_FormatFourDigit(char *dest, unsigned int value);
 static void Serial_DisplayModeService(void);
 static void Serial_ServiceHeartbeat(void);
 static void Serial_ShowBigText(const char *text);
@@ -315,6 +324,78 @@ static void Serial_WritePcLine(const char *s) {
 	Serial_WritePcChar('\n');
 }
 
+static void Serial_WritePcSamplePair(const char *prefix, unsigned int left_value, unsigned int right_value) {
+	char left_str[8];
+	char right_str[8];
+
+	Serial_Utoa(left_value, left_str, sizeof(left_str));
+	Serial_Utoa(right_value, right_str, sizeof(right_str));
+
+	Serial_WritePcString(prefix);
+	Serial_WritePcString(" L:");
+	Serial_WritePcString(left_str);
+	Serial_WritePcString(" R:");
+	Serial_WritePcString(right_str);
+	Serial_WritePcChar('\r');
+	Serial_WritePcChar('\n');
+}
+
+static uint8_t Serial_CommandIsWhitespace(char c) {
+	return (c == ' ') || (c == '\r') || (c == '\n') || (c == '\t');
+}
+
+static void Serial_ProcessCommandBuffer(char *buffer, unsigned char length) {
+	if (!buffer) {
+		Serial_WritePcLine("ERR empty command");
+		return;
+	}
+
+	unsigned char len = length;
+	while (len > 0u && Serial_CommandIsWhitespace(buffer[len - 1u])) {
+		buffer[len - 1u] = '\0';
+		len--;
+	}
+
+	unsigned char start = 0u;
+	while ((start < len) && Serial_CommandIsWhitespace(buffer[start])) {
+		start++;
+	}
+
+	if (start > 0u && len > start) {
+		memmove(buffer, buffer + start, len - start);
+		len -= start;
+		buffer[len] = '\0';
+	} else if (start > 0u && len == start) {
+		len = 0u;
+		buffer[0] = '\0';
+	}
+
+	if (len == 0u) {
+		Serial_WritePcLine("ERR empty command");
+		return;
+	}
+
+	Serial_HandleCommand(buffer, len);
+}
+
+static void Serial_ProcessCommandString(const char *buffer, unsigned int length) {
+	if (!buffer || length == 0u) {
+		Serial_WritePcLine("ERR empty command");
+		return;
+	}
+
+	unsigned int copy_len = length;
+	if (copy_len > SERIAL_MAX_CMD_LEN) {
+		copy_len = SERIAL_MAX_CMD_LEN;
+	}
+
+	char local_buf[SERIAL_MAX_CMD_LEN + 1u];
+	memcpy(local_buf, buffer, copy_len);
+	local_buf[copy_len] = '\0';
+
+	Serial_ProcessCommandBuffer(local_buf, (unsigned char)copy_len);
+}
+
 static void Serial_WriteIotChar(char c) {
 	while (!(UCA0IFG & UCTXIFG)) {
 		;
@@ -372,7 +453,7 @@ static void Serial_FinalizeCommand(void) {
 	}
 	buffer[command_length] = '\0';
 
-	Serial_HandleCommand(buffer, command_length);
+	Serial_ProcessCommandBuffer(buffer, command_length);
 }
 
 static void Serial_HandleCommand(const char *cmd, unsigned char len) {
@@ -401,66 +482,9 @@ static void Serial_HandleCommand(const char *cmd, unsigned char len) {
 
 	if (len >= (SERIAL_AUTH_PIN_LEN + 1u)) {
 		if (strncmp(cmd, SERIAL_AUTH_PIN, SERIAL_AUTH_PIN_LEN) == 0) {
-			char direction = (char)toupper((unsigned char)cmd[SERIAL_AUTH_PIN_LEN]);
-			const char *duration_str = cmd + SERIAL_AUTH_PIN_LEN + 1u;
-			unsigned char expects_duration = 1u;
-			unsigned int raw_value = 0u;
-			unsigned int duration_ticks = 0u;
-
-			switch (direction) {
-				case 'F':
-				case 'B':
-				case 'L':
-				case 'R':
-					expects_duration = 1u;
-					break;
-				case 'S':
-					expects_duration = 0u;
-					break;
-				default:
-					Serial_WritePcLine("ERR invalid direction");
-					return;
-			}
-
-			if (expects_duration) {
-				if (*duration_str == '\0') {
-					Serial_WritePcLine("ERR missing duration");
-					return;
-				}
-				unsigned char digit_len = (unsigned char)strlen(duration_str);
-				raw_value = Serial_ParseUnsigned(duration_str, digit_len);
-				if ((raw_value == 0u) || (raw_value > 9999u)) {
-					Serial_WritePcLine("ERR invalid duration");
-					return;
-				}
-				if ((direction == 'L') || (direction == 'R')) {
-					if (raw_value > SERIAL_MAX_TURN_DEGREES) {
-						Serial_WritePcLine("ERR turn angle");
-						return;
-					}
-				}
-				if (!Serial_ConvertDurationToTicks(direction, raw_value, &duration_ticks)) {
-					Serial_WritePcLine("ERR duration range");
-					return;
-				}
-			} else {
-				if (*duration_str != '\0') {
-					Serial_WritePcLine("ERR stop syntax");
-					return;
-				}
-			}
-
-			pending_motion_command.direction = direction;
-			pending_motion_command.duration  = (uint16_t)duration_ticks;
-			motion_command_pending = 1u;
-
-			if (direction == 'S') {
-				Serial_WritePcLine("CMD stop");
-				Serial_ShowBigCommand(direction, 0u);
-			} else {
-				Serial_WritePcLine("CMD accepted");
-				Serial_ShowBigCommand(direction, raw_value);
-			}
+			const char *payload = cmd + SERIAL_AUTH_PIN_LEN;
+			unsigned int remaining = len - SERIAL_AUTH_PIN_LEN;
+			Serial_HandleAuthorizedCommand(payload, remaining);
 			return;
 		}
 	}
@@ -474,6 +498,144 @@ static void Serial_SetIotBaud(serial_baud_t mode) {
 		Serial_InitUCA0(current_iot_baud);
 	}
 	Serial_ShowBaudOnDisplay(current_iot_baud);
+}
+
+static void Serial_HandleAuthorizedCommand(const char *payload, unsigned int length) {
+	if (!payload || length == 0u) {
+		Serial_WritePcLine("ERR missing opcode");
+		return;
+	}
+
+	char opcode = (char)toupper((unsigned char)payload[0]);
+	const char *args = payload + 1u;
+	unsigned int args_len = (length > 0u) ? (length - 1u) : 0u;
+
+	switch (opcode) {
+		case 'F':
+		case 'B':
+		case 'L':
+		case 'R': {
+			if (IRLine_IsActive()) {
+				Serial_WritePcLine("ERR IR active");
+				return;
+			}
+			if (args_len == 0u) {
+				Serial_WritePcLine("ERR missing duration");
+				return;
+			}
+			unsigned char digit_len = (unsigned char)args_len;
+			unsigned int raw_value = Serial_ParseUnsigned(args, digit_len);
+			if ((raw_value == 0u) || (raw_value > 9999u)) {
+				Serial_WritePcLine("ERR invalid duration");
+				return;
+			}
+			if ((opcode == 'L' || opcode == 'R') && (raw_value > SERIAL_MAX_TURN_DEGREES)) {
+				Serial_WritePcLine("ERR turn angle");
+				return;
+			}
+			unsigned int duration_ticks = 0u;
+			if (!Serial_ConvertDurationToTicks(opcode, raw_value, &duration_ticks)) {
+				Serial_WritePcLine("ERR duration range");
+				return;
+			}
+			pending_motion_command.direction = opcode;
+			pending_motion_command.duration  = (uint16_t)duration_ticks;
+			motion_command_pending = 1u;
+			Serial_WritePcLine("CMD accepted");
+			Serial_ShowBigCommand(opcode, raw_value);
+			return;
+		}
+		case 'S': {
+			if (args_len != 0u) {
+				Serial_WritePcLine("ERR stop syntax");
+				return;
+			}
+            // Emergency Stop: Kill IR loop if active
+            IRLine_ForceStop();
+            
+			pending_motion_command.direction = 'S';
+			pending_motion_command.duration  = 0u;
+			motion_command_pending = 1u;
+			Serial_WritePcLine("CMD stop");
+			Serial_ShowBigCommand('S', 0u);
+			return;
+		}
+		case 'Q': {
+			if (args_len != 0u) {
+				Serial_WritePcLine("ERR IR syntax");
+				return;
+			}
+			irline_sample_t sample;
+			irline_result_t result = IRLine_CalibrateBlack(&sample);
+			if (result == IRLINE_RESULT_OK) {
+				Serial_WritePcSamplePair("IR BLACK", sample.left, sample.right);
+			} else {
+				Serial_WritePcLine("ERR IR busy");
+			}
+			return;
+		}
+		case 'W': {
+			if (args_len != 0u) {
+				Serial_WritePcLine("ERR IR syntax");
+				return;
+			}
+			irline_sample_t sample;
+			irline_result_t result = IRLine_CalibrateWhite(&sample);
+			if (result == IRLINE_RESULT_OK) {
+				Serial_WritePcSamplePair("IR WHITE", sample.left, sample.right);
+			} else {
+				Serial_WritePcLine("ERR IR busy");
+			}
+			return;
+		}
+		case 'I': {
+			if (args_len != 0u) {
+				Serial_WritePcLine("ERR IR syntax");
+				return;
+			}
+			irline_result_t result = IRLine_BeginFollowing();
+			switch (result) {
+				case IRLINE_RESULT_OK:
+					Serial_WritePcLine("IR follow start");
+					break;
+				case IRLINE_RESULT_NEED_WHITE:
+					Serial_WritePcLine("ERR calibrate white");
+					break;
+				case IRLINE_RESULT_NEED_BLACK:
+					Serial_WritePcLine("ERR calibrate black");
+					break;
+				default:
+					Serial_WritePcLine("ERR IR busy");
+					break;
+			}
+			return;
+		}
+		case 'D': {
+			if (args_len != 0u) {
+				Serial_WritePcLine("ERR IR syntax");
+				return;
+			}
+			irline_result_t result = IRLine_RequestDone();
+			switch (result) {
+				case IRLINE_RESULT_OK:
+					Serial_WritePcLine("IR exit 3s");
+					break;
+				case IRLINE_RESULT_NOT_RUNNING:
+					Serial_WritePcLine("ERR IR idle");
+					break;
+				case IRLINE_RESULT_ALREADY_RUNNING:
+					Serial_WritePcLine("IR exit pending");
+					break;
+				default:
+					Serial_WritePcLine("ERR IR busy");
+					break;
+			}
+			return;
+		}
+		default:
+			Serial_WritePcLine("ERR invalid direction");
+			return;
+	}
 }
 
 static void Serial_ShowBaudOnDisplay(serial_baud_t mode) {
@@ -732,8 +894,8 @@ static void Serial_DispatchIpdPayload(unsigned char link_id, const char *payload
 	if (*start == '^') {
 		const char *cmd_body = start + 1;
 		size_t cmd_size = strlen(cmd_body);
-		if ((cmd_size > 0u) && (cmd_size < 255u)) {
-			Serial_HandleCommand(cmd_body, (unsigned char)cmd_size);
+		if (cmd_size > 0u) {
+			Serial_ProcessCommandString(cmd_body, (unsigned int)cmd_size);
 		} else {
 			Serial_WritePcLine("ERR remote command");
 		}
@@ -1229,7 +1391,32 @@ static void Serial_ShowWaitingScreen(void) {
 	lcd_BIG_mid();  // Switch to BIG mode for centered "WAITING"
 	dispPrint((char *)"Ohm Patel", 1);
 	dispPrint((char *)"WAITING", 2);  // Show "WAITING" centered on line 2
-	dispPrint((char *)"ECE 306", 3);
+	Serial_UpdateIrAdcLine();
+}
+
+static void Serial_UpdateIrAdcLine(void) {
+	char line[11];
+	Serial_FormatFourDigit(line, ADCLeft);
+	line[4] = ' ';
+	line[5] = ' ';
+	Serial_FormatFourDigit(&line[6], ADCRight);
+	line[10] = '\0';
+	dispPrint(line, 3);
+}
+
+static void Serial_FormatFourDigit(char *dest, unsigned int value) {
+	unsigned int remaining;
+	unsigned int idx;
+
+	if (!dest) {
+		return;
+	}
+
+	remaining = (value > 9999u) ? 9999u : value;
+	for (idx = 0u; idx < 4u; idx++) {
+		dest[3u - idx] = (char)('0' + (remaining % 10u));
+		remaining /= 10u;
+	}
 }
 
 static void Serial_DisplayModeService(void) {
@@ -1238,6 +1425,10 @@ static void Serial_DisplayModeService(void) {
 		if (elapsed >= SERIAL_WIFI_DISPLAY_HOLD_TICKS) {
 			Serial_ShowWaitingScreen();
 		}
+	}
+
+	if (current_display_mode == SERIAL_DISPLAY_WAITING && !big_display_active) {
+		Serial_UpdateIrAdcLine();
 	}
 
 	// Restore "WAITING" screen after big display timeout
