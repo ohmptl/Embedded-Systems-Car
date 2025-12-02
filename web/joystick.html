@@ -157,7 +157,33 @@
       pointer-events: none;
     }
 
+    /* IR Control Panel */
+    .ir-controls {
+      position: absolute;
+      bottom: 2rem;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 0.5rem;
+      background: rgba(30, 41, 59, 0.8);
+      padding: 0.5rem;
+      border-radius: 8px;
+      border: 1px solid rgba(148, 163, 184, 0.2);
+    }
+
+    .ir-btn {
+      font-size: 0.8rem;
+      padding: 0.4rem 0.8rem;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .ir-btn:active {
+      background: var(--accent);
+    }
+
     @media (max-width: 600px) and (orientation: portrait) {
+
 
       /* Stack vertically in portrait if needed, though landscape is preferred */
       main {
@@ -210,6 +236,14 @@
       </div>
       <div class="label">Tank Spin</div>
     </div>
+
+    <div class="ir-controls">
+      <button class="ir-btn" onclick="sendIrCommand('cal_white')">Cal White (Left)</button>
+      <button class="ir-btn" onclick="sendIrCommand('cal_black')">Cal Black (Right)</button>
+      <button class="ir-btn" onclick="sendIrCommand('start')">Start (X)</button>
+      <button class="ir-btn" onclick="sendIrCommand('exit')">Exit (Sq)</button>
+      <button class="ir-btn" style="background: #ef4444;" onclick="sendIrCommand('stop')">STOP (O)</button>
+    </div>
   </main>
 
   <script>
@@ -236,6 +270,15 @@
     let directionHoldUntil = 0;
     let isSending = false;
     let activeGamepadIndex = null;
+    
+    // IR Command State
+    let lastIrButtonState = {
+      stop: false,
+      cal_white: false,
+      cal_black: false,
+      start: false,
+      exit: false
+    };
 
     // --- Joystick Class ---
     class TouchJoystick {
@@ -483,10 +526,34 @@
       }
     }
 
+    async function sendIrCommand(cmd) {
+      const endpoint = normalizeEndpoint(endpointInput.value);
+      if (!endpoint) return;
+
+      statusEl.textContent = `IR: ${cmd}...`;
+      try {
+        const res = await fetch(`${endpoint}/api/ir`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: `cmd=${cmd}`
+        });
+        if (res.ok) statusEl.textContent = `IR: ${cmd} OK`;
+        else statusEl.textContent = `IR Error ${res.status}`;
+      } catch (e) {
+        statusEl.textContent = 'Link Error';
+      }
+    }
+
     async function controlLoop() {
       if (isSending) return;
       isSending = true;
       try {
+        // Check Gamepad for IR buttons
+        const gamepad = getActiveGamepad();
+        if (gamepad) {
+          checkGamepadIrButtons(gamepad);
+        }
+
         const rawAxes = getCombinedAxes();
         const interlock = enforceInterlock(rawAxes.axisY);
         const finalAxes = interlock.cooling ? { axisX: 0, axisY: 0 } : rawAxes;
@@ -495,6 +562,32 @@
       } finally {
         isSending = false;
       }
+    }
+
+    function checkGamepadIrButtons(pad) {
+      // PS4 Mapping
+      // Button 0: X (Blue) -> Start
+      // Button 1: Circle (Red) -> Stop
+      // Button 2: Square (Pink) -> Exit
+      // Button 14: D-Pad Left -> Cal White
+      // Button 15: D-Pad Right -> Cal Black
+
+      const pressed = {
+        start: pad.buttons[0].pressed,
+        stop: pad.buttons[1].pressed,
+        exit: pad.buttons[2].pressed,
+        cal_white: pad.buttons[14].pressed,
+        cal_black: pad.buttons[15].pressed
+      };
+
+      // Edge detection (trigger on press)
+      if (pressed.start && !lastIrButtonState.start) sendIrCommand('start');
+      if (pressed.stop && !lastIrButtonState.stop) sendIrCommand('stop');
+      if (pressed.exit && !lastIrButtonState.exit) sendIrCommand('exit');
+      if (pressed.cal_white && !lastIrButtonState.cal_white) sendIrCommand('cal_white');
+      if (pressed.cal_black && !lastIrButtonState.cal_black) sendIrCommand('cal_black');
+
+      lastIrButtonState = pressed;
     }
 
     setInterval(controlLoop, SEND_INTERVAL_MS);

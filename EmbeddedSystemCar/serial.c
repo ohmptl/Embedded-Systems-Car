@@ -144,6 +144,7 @@ static void Serial_SendHttpNoContent(unsigned char link_id);
 static void Serial_CloseHttpSocket(unsigned char link_id);
 static void Serial_WriteIotBuffer(const char *data, unsigned int length);
 static void Serial_HandleJoystickApi(unsigned char link_id, const char *headers, const char *body, unsigned int body_length);
+static void Serial_HandleIrApi(unsigned char link_id, const char *headers, const char *body, unsigned int body_length);
 static unsigned int Serial_ParseContentLength(const char *headers);
 static uint8_t Serial_HasFormContentType(const char *headers);
 static uint8_t Serial_ParseFormInt(const char *body, const char *key, int *value_out);
@@ -1009,6 +1010,16 @@ static void Serial_HandleHttpRequest(unsigned char link_id, char *payload, unsig
 		return;
 	}
 
+	if ((strcmp(method, "POST") == 0) && (strncmp(path, "/api/ir", 7) == 0)) {
+		unsigned int declared_length = Serial_ParseContentLength(header_block);
+		if (declared_length > body_len) {
+			Serial_SendHttpJson(link_id, "HTTP/1.1 400 Bad Request", "{\"error\":\"body truncated\"}");
+			return;
+		}
+		Serial_HandleIrApi(link_id, header_block, body, declared_length);
+		return;
+	}
+
 	Serial_SendHttpJson(link_id, "HTTP/1.1 404 Not Found", "{\"error\":\"unknown path\"}");
 }
 
@@ -1171,6 +1182,64 @@ static void Serial_HandleJoystickApi(unsigned char link_id, const char *headers,
 		return;
 	}
 	Serial_SendHttpJson(link_id, "HTTP/1.1 200 OK", response);
+}
+
+static void Serial_HandleIrApi(unsigned char link_id, const char *headers, const char *body, unsigned int body_length) {
+	if (!body || (body_length == 0u)) {
+		Serial_SendHttpJson(link_id, "HTTP/1.1 400 Bad Request", "{\"error\":\"missing body\"}");
+		return;
+	}
+
+	if (!Serial_HasFormContentType(headers)) {
+		Serial_SendHttpJson(link_id, "HTTP/1.1 415 Unsupported Media Type",
+			"{\"error\":\"use application/x-www-form-urlencoded\"}");
+		return;
+	}
+
+	char form_buffer[64];
+	unsigned int copy_len = body_length;
+	if (copy_len >= sizeof(form_buffer)) {
+		copy_len = sizeof(form_buffer) - 1u;
+	}
+	memcpy(form_buffer, body, copy_len);
+	form_buffer[copy_len] = '\0';
+
+	const char *cmd_start = strstr(form_buffer, "cmd=");
+	if (!cmd_start) {
+		Serial_SendHttpJson(link_id, "HTTP/1.1 400 Bad Request", "{\"error\":\"missing cmd\"}");
+		return;
+	}
+	cmd_start += 4; // Skip "cmd="
+
+	char cmd_val[32];
+	unsigned int i = 0;
+	while(cmd_start[i] && cmd_start[i] != '&' && i < sizeof(cmd_val)-1) {
+		cmd_val[i] = cmd_start[i];
+		i++;
+	}
+	cmd_val[i] = '\0';
+
+	if (strcmp(cmd_val, "stop") == 0) {
+		IRLine_ForceStop();
+		Serial_SendHttpJson(link_id, "HTTP/1.1 200 OK", "{\"status\":\"stopped\"}");
+	} else if (strcmp(cmd_val, "cal_white") == 0) {
+		IRLine_CalibrateWhite(NULL);
+		Serial_SendHttpJson(link_id, "HTTP/1.1 200 OK", "{\"status\":\"calibrated_white\"}");
+	} else if (strcmp(cmd_val, "cal_black") == 0) {
+		IRLine_CalibrateBlack(NULL);
+		Serial_SendHttpJson(link_id, "HTTP/1.1 200 OK", "{\"status\":\"calibrated_black\"}");
+	} else if (strcmp(cmd_val, "start") == 0) {
+		irline_result_t res = IRLine_BeginFollowing();
+		if(res == IRLINE_RESULT_OK)
+			 Serial_SendHttpJson(link_id, "HTTP/1.1 200 OK", "{\"status\":\"started\"}");
+		else
+			 Serial_SendHttpJson(link_id, "HTTP/1.1 400 Bad Request", "{\"error\":\"calibration_needed\"}");
+	} else if (strcmp(cmd_val, "exit") == 0) {
+		IRLine_RequestDone();
+		Serial_SendHttpJson(link_id, "HTTP/1.1 200 OK", "{\"status\":\"exiting\"}");
+	} else {
+		Serial_SendHttpJson(link_id, "HTTP/1.1 400 Bad Request", "{\"error\":\"unknown_cmd\"}");
+	}
 }
 
 static unsigned int Serial_ParseContentLength(const char *headers) {
