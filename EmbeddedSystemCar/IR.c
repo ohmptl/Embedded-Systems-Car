@@ -36,6 +36,8 @@ extern volatile unsigned int timer200ms;
 // PWM Speeds (Tune these!)
 #define IR_SEARCH_SPEED_L             (15000u)
 #define IR_SEARCH_SPEED_R             (15000u)
+#define IR_ARC_SPEED_L                (18000u)
+#define IR_ARC_SPEED_R                (10000u)
 #define IR_TURN_SPEED                 (14000u)
 #define IR_FOLLOW_SPEED               (13000u)
 #define IR_EXIT_SPEED                 (16000u)
@@ -56,7 +58,8 @@ extern volatile unsigned int timer200ms;
 //------------------------------------------------------------------------------
 typedef enum {
     STATE_IDLE = 0,
-    STATE_SEARCH,
+    STATE_SEARCH_WHITE,
+    STATE_SEARCH_BLACK,
     STATE_INTERCEPT_WAIT,
     STATE_TURN,
     STATE_TURN_WAIT,
@@ -87,6 +90,7 @@ static unsigned char cal_black = 0;
 static void IR_Control_PID(void);
 static void IR_SetStatus(const char *msg);
 static unsigned char IR_OnLine(void);
+static unsigned char IR_OnWhite(void);
 static void IR_EnterState(ir_state_t next_state);
 
 //------------------------------------------------------------------------------
@@ -158,7 +162,7 @@ irline_result_t IRLine_BeginFollowing(void){
     
     IR = ON;
     IRChange = TRUE;
-    IR_EnterState(STATE_SEARCH);
+    IR_EnterState(STATE_SEARCH_WHITE);
     return IRLINE_RESULT_OK;
 }
 
@@ -180,9 +184,17 @@ void IRLine_Service(void){
     unsigned int elapsed = timer200ms - state_start_time;
 
     switch(current_state){
-        case STATE_SEARCH:
-            // Drive forward until line detected
-            set_motor_speeds(IR_SEARCH_SPEED_L, IR_SEARCH_SPEED_R);
+        case STATE_SEARCH_WHITE:
+            // Drive in arc until white detected
+            set_motor_speeds(IR_ARC_SPEED_L, IR_ARC_SPEED_R);
+            if(IR_OnWhite()){
+                IR_EnterState(STATE_SEARCH_BLACK);
+            }
+            break;
+
+        case STATE_SEARCH_BLACK:
+            // Continue arc until line detected
+            set_motor_speeds(IR_ARC_SPEED_L, IR_ARC_SPEED_R);
             if(IR_OnLine()){
                 IR_EnterState(STATE_INTERCEPT_WAIT);
             }
@@ -256,8 +268,11 @@ static void IR_EnterState(ir_state_t next_state){
     state_start_time = timer200ms;
     
     switch(next_state){
-        case STATE_SEARCH:
-            IR_SetStatus("BL Start");
+        case STATE_SEARCH_WHITE:
+            IR_SetStatus("Find White");
+            break;
+        case STATE_SEARCH_BLACK:
+            IR_SetStatus("Find Line");
             break;
         case STATE_INTERCEPT_WAIT:
             motorStop();
@@ -297,6 +312,12 @@ static void IR_EnterState(ir_state_t next_state){
         default:
             break;
     }
+}
+
+static unsigned char IR_OnWhite(void){
+    // Check if both sensors are reasonably close to calibrated white
+    // Using a margin of 100 to be safe
+    return (ADCLeft < white_left + 100 && ADCRight < white_right + 100);
 }
 
 static unsigned char IR_OnLine(void){
