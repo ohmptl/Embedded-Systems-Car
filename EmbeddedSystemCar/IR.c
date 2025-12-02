@@ -37,7 +37,7 @@ extern volatile unsigned int timer200ms;
 #define IR_SEARCH_SPEED_L             (15000u)
 #define IR_SEARCH_SPEED_R             (15000u)
 #define IR_ARC_SPEED_L                (19000u)
-#define IR_ARC_SPEED_R                (9500u)
+#define IR_ARC_SPEED_R                (10000u)
 #define IR_TURN_SPEED                 (14000u)
 #define IR_FOLLOW_SPEED               (9000u)
 #define IR_EXIT_SPEED                 (16000u)
@@ -60,6 +60,7 @@ extern volatile unsigned int timer200ms;
 typedef enum {
     STATE_IDLE = 0,
     STATE_TRAVEL_TO_MAT,
+    STATE_INITIAL_ARC,
     STATE_SEARCH_WHITE,
     STATE_SEARCH_BLACK,
     STATE_INTERCEPT_WAIT,
@@ -70,6 +71,8 @@ typedef enum {
     STATE_CIRCLE_CONTINUE,
     STATE_EXIT_TURN,
     STATE_EXIT_DRIVE,
+    STATE_UTURN_PAUSE,
+    STATE_UTURN_SEARCH,
     STATE_STOP
 } ir_state_t;
 
@@ -168,6 +171,12 @@ irline_result_t IRLine_BeginFollowing(void){
     return IRLINE_RESULT_OK;
 }
 
+void IRLine_StartUturn(void){
+    IR = ON;
+    IRChange = TRUE;
+    IR_EnterState(STATE_UTURN_PAUSE);
+}
+
 irline_result_t IRLine_RequestDone(void){
     if(current_state == STATE_IDLE) return IRLINE_RESULT_NOT_RUNNING;
     IR_EnterState(STATE_EXIT_TURN);
@@ -187,9 +196,17 @@ void IRLine_Service(void){
 
     switch(current_state){
         case STATE_TRAVEL_TO_MAT:
-            // Blind travel to get to the mat area
+            // Drive straight for 2 seconds
+            set_motor_speeds(IR_SEARCH_SPEED_L, IR_SEARCH_SPEED_R);
+            if(elapsed >= 10u){ // 2 seconds
+                IR_EnterState(STATE_INITIAL_ARC);
+            }
+            break;
+
+        case STATE_INITIAL_ARC:
+            // Arc Right for 2 seconds
             set_motor_speeds(IR_ARC_SPEED_L, IR_ARC_SPEED_R);
-            if(elapsed >= TRAVEL_TO_MAT_TICKS){
+            if(elapsed >= 50u){ // 2 seconds
                 IR_EnterState(STATE_SEARCH_BLACK);
             }
             break;
@@ -259,6 +276,25 @@ void IRLine_Service(void){
             }
             break;
 
+        case STATE_UTURN_PAUSE:
+            motorStop();
+            if(elapsed >= PAUSE_TICKS){
+                IR_EnterState(STATE_UTURN_SEARCH);
+            }
+            break;
+
+        case STATE_UTURN_SEARCH:
+            // Turn 180 (tank turn left) until line found
+            tank_turn_left_pwm(IR_TURN_SPEED);
+            // Wait a bit before checking line to avoid immediate detection if we are already on it?
+            // Assuming we are OFF the line or need to turn 180.
+            // If we are on the line, we might want to turn off it first.
+            // But "realign 180 degrees" implies we are facing wrong way.
+            if(elapsed > 5 && IR_OnLine()){
+                IR_EnterState(STATE_STOP);
+            }
+            break;
+
         case STATE_STOP:
             motorStop();
             break;
@@ -276,6 +312,9 @@ static void IR_EnterState(ir_state_t next_state){
     switch(next_state){
         case STATE_TRAVEL_TO_MAT:
             IR_SetStatus("BL Start");
+            break;
+        case STATE_INITIAL_ARC:
+            IR_SetStatus("BL Arc");
             break;
         case STATE_SEARCH_WHITE:
             IR_SetStatus("Find White");

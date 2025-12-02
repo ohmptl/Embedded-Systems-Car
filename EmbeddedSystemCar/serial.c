@@ -90,6 +90,10 @@ static unsigned int ipd_bytes_captured = 0u;
 static unsigned char ipd_overflow = 0u;
 static char ipd_payload_buffer[SERIAL_MAX_HTTP_PAYLOAD + 1u];
 
+static unsigned int arrived_count = 1u;
+static unsigned int input_start_time = 0u;
+static unsigned char input_active = 0u;
+
 extern volatile unsigned int timer200ms;
 extern volatile unsigned int ADCLeft;
 extern volatile unsigned int ADCRight;
@@ -124,6 +128,8 @@ static void Serial_FormatFourDigit(char *dest, unsigned int value);
 static void Serial_DisplayModeService(void);
 static void Serial_ServiceHeartbeat(void);
 static void Serial_ShowBigText(const char *text);
+static void Serial_Utoa(unsigned int value, char *buffer, unsigned int buffer_len);
+static void Serial_Itoa(int value, char *buffer, unsigned int buffer_len);
 static void Serial_ShowBigCommand(char direction, unsigned int duration);
 static unsigned int Serial_ParseUnsigned(const char *s, unsigned char len);
 static void Serial_SendIotString(const char *command);
@@ -501,6 +507,25 @@ static void Serial_SetIotBaud(serial_baud_t mode) {
 	Serial_ShowBaudOnDisplay(current_iot_baud);
 }
 
+static void Serial_ProcessArrived(void) {
+    if (!input_active) {
+        input_active = 1u;
+        input_start_time = timer200ms;
+    }
+    
+    char msg[16];
+    // Format: "Arrived 0X"
+    strcpy(msg, "Arrived 0");
+    char num_str[8];
+    Serial_Utoa(arrived_count, num_str, sizeof(num_str));
+    strcat(msg, num_str);
+    
+    dispPrint(msg, 1);
+    Serial_WritePcLine(msg);
+    
+    arrived_count++;
+}
+
 static void Serial_HandleAuthorizedCommand(const char *payload, unsigned int length) {
 	if (!payload || length == 0u) {
 		Serial_WritePcLine("ERR missing opcode");
@@ -512,6 +537,10 @@ static void Serial_HandleAuthorizedCommand(const char *payload, unsigned int len
 	unsigned int args_len = (length > 0u) ? (length - 1u) : 0u;
 
 	switch (opcode) {
+        case 'U': {
+            Serial_ProcessArrived();
+            return;
+        }
 		case 'F':
 		case 'B':
 		case 'L':
@@ -1036,23 +1065,34 @@ static void Serial_SendHttpResponse(unsigned char link_id, const char *status_li
 
 	unsigned int body_len = (unsigned int)strlen(body);
 	char header[256];
-	int header_len = snprintf(header, sizeof(header),
-		"%s\r\n"
-		"Content-Type: %s\r\n"
-		"Access-Control-Allow-Origin: *\r\n"
-		"Access-Control-Allow-Headers: Content-Type\r\n"
-		"Access-Control-Allow-Methods: POST, OPTIONS, GET\r\n"
-		"Connection: close\r\n"
-		"Content-Length: %d\r\n"
-		"\r\n",
-		status_line, content_type, (int)body_len);
+    
+    strcpy(header, status_line);
+    strcat(header, "\r\nContent-Type: ");
+    strcat(header, content_type);
+    strcat(header, "\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Headers: Content-Type\r\nAccess-Control-Allow-Methods: POST, OPTIONS, GET\r\nConnection: close\r\nContent-Length: ");
+    char len_str[16];
+    Serial_Utoa(body_len, len_str, sizeof(len_str));
+    strcat(header, len_str);
+    strcat(header, "\r\n\r\n");
+    
+	int header_len = strlen(header);
 	if (header_len <= 0) {
 		return;
 	}
 
 	unsigned int total_len = (unsigned int)header_len + body_len;
 	char cmd[32];
-	int cmd_len = snprintf(cmd, sizeof(cmd), "AT+CIPSEND=%d,%d", (int)link_id, (int)total_len);
+    
+    strcpy(cmd, "AT+CIPSEND=");
+    char id_str[8];
+    Serial_Utoa((unsigned int)link_id, id_str, sizeof(id_str));
+    strcat(cmd, id_str);
+    strcat(cmd, ",");
+    char total_len_str[16];
+    Serial_Utoa(total_len, total_len_str, sizeof(total_len_str));
+    strcat(cmd, total_len_str);
+    
+	int cmd_len = strlen(cmd);
 	if (cmd_len <= 0) {
 		return;
 	}
@@ -1071,19 +1111,22 @@ static void Serial_SendHttpJson(unsigned char link_id, const char *status_line, 
 
 static void Serial_SendHttpNoContent(unsigned char link_id) {
 	char header[192];
-	int header_len = snprintf(header, sizeof(header),
-		"HTTP/1.1 204 No Content\r\n"
-		"Access-Control-Allow-Origin: *\r\n"
-		"Access-Control-Allow-Headers: Content-Type\r\n"
-		"Access-Control-Allow-Methods: POST, OPTIONS, GET\r\n"
-		"Connection: close\r\n"
-		"Content-Length: 0\r\n"
-		"\r\n");
+    strcpy(header, "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Headers: Content-Type\r\nAccess-Control-Allow-Methods: POST, OPTIONS, GET\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
+	int header_len = strlen(header);
 	if (header_len <= 0) {
 		return;
 	}
 	char cmd[32];
-	int cmd_len = snprintf(cmd, sizeof(cmd), "AT+CIPSEND=%d,%d", (int)link_id, (int)header_len);
+    strcpy(cmd, "AT+CIPSEND=");
+    char id_str[8];
+    Serial_Utoa((unsigned int)link_id, id_str, sizeof(id_str));
+    strcat(cmd, id_str);
+    strcat(cmd, ",");
+    char len_str[16];
+    Serial_Utoa((unsigned int)header_len, len_str, sizeof(len_str));
+    strcat(cmd, len_str);
+    
+	int cmd_len = strlen(cmd);
 	if (cmd_len <= 0) {
 		return;
 	}
@@ -1106,7 +1149,11 @@ static void Serial_WriteIotBuffer(const char *data, unsigned int length) {
 
 static void Serial_CloseHttpSocket(unsigned char link_id) {
 	char cmd[20];
-	int len = snprintf(cmd, sizeof(cmd), "AT+CIPCLOSE=%d", (int)link_id);
+    strcpy(cmd, "AT+CIPCLOSE=");
+    char id_str[8];
+    Serial_Utoa((unsigned int)link_id, id_str, sizeof(id_str));
+    strcat(cmd, id_str);
+	int len = strlen(cmd);
 	if (len > 0) {
 		Serial_SendIotString(cmd);
 	}
@@ -1170,14 +1217,25 @@ static void Serial_HandleJoystickApi(unsigned char link_id, const char *headers,
 	char right_str[8];
 	Serial_Utoa(applied_left, left_str, sizeof(left_str));
 	Serial_Utoa(applied_right, right_str, sizeof(right_str));
-	int len = snprintf(response, sizeof(response),
-		"{\"left\":%s,\"right\":%s,\"axis\":{\"x\":%d,\"y\":%d},\"engaged\":%d}",
-		left_str,
-		right_str,
-		x_val,
-		y_val,
-		(active_flag != 0));
-	if (len < 0) {
+    
+    strcpy(response, "{\"left\":");
+    strcat(response, left_str);
+    strcat(response, ",\"right\":");
+    strcat(response, right_str);
+    strcat(response, ",\"axis\":{\"x\":");
+    char x_str[16];
+    Serial_Itoa(x_val, x_str, sizeof(x_str));
+    strcat(response, x_str);
+    strcat(response, ",\"y\":");
+    char y_str[16];
+    Serial_Itoa(y_val, y_str, sizeof(y_str));
+    strcat(response, y_str);
+    strcat(response, "},\"engaged\":");
+    strcat(response, (active_flag != 0) ? "1" : "0");
+    strcat(response, "}");
+    
+	int len = strlen(response);
+	if (len <= 0) {
 		Serial_SendHttpJson(link_id, "HTTP/1.1 200 OK", "{\"status\":\"ok\"}");
 		return;
 	}
@@ -1237,6 +1295,9 @@ static void Serial_HandleIrApi(unsigned char link_id, const char *headers, const
 	} else if (strcmp(cmd_val, "exit") == 0) {
 		IRLine_RequestDone();
 		Serial_SendHttpJson(link_id, "HTTP/1.1 200 OK", "{\"status\":\"exiting\"}");
+	} else if (strcmp(cmd_val, "arrived") == 0) {
+		Serial_ProcessArrived();
+		Serial_SendHttpJson(link_id, "HTTP/1.1 200 OK", "{\"status\":\"arrived\"}");
 	} else {
 		Serial_SendHttpJson(link_id, "HTTP/1.1 400 Bad Request", "{\"error\":\"unknown_cmd\"}");
 	}
@@ -1335,6 +1396,34 @@ static uint8_t Serial_ParseFormInt(const char *body, const char *key, int *value
 	return 0u;
 }
 
+static void Serial_Itoa(int value, char *buffer, unsigned int buffer_len) {
+    if (!buffer || buffer_len == 0) return;
+    
+    unsigned int uval;
+    int pos = 0;
+    
+    if (value < 0) {
+        if (buffer_len < 2) { buffer[0] = '\0'; return; }
+        buffer[pos++] = '-';
+        uval = (unsigned int)(-value);
+    } else {
+        uval = (unsigned int)value;
+    }
+    
+    char digits[16];
+    unsigned int count = 0;
+    
+    do {
+        digits[count++] = (char)('0' + (uval % 10u));
+        uval /= 10u;
+    } while (uval > 0u && count < sizeof(digits));
+    
+    while (count > 0 && (unsigned int)pos < (buffer_len - 1)) {
+        buffer[pos++] = digits[--count];
+    }
+    buffer[pos] = '\0';
+}
+
 static void Serial_Utoa(unsigned int value, char *buffer, unsigned int buffer_len) {
 	char digits[6];
 	unsigned int count = 0u;
@@ -1359,13 +1448,22 @@ static void Serial_HandleHttpHealth(unsigned char link_id) {
 	const char *ssid = wifi_ssid_valid ? wifi_ssid : "unknown";
 	const char *ip = wifi_ip_valid ? wifi_ip : "0.0.0.0";
 	char payload[192];
-	int len = snprintf(payload, sizeof(payload),
-		"{\"wifi\":{\"ssid\":\"%s\",\"ip\":\"%s\"},\"serverConfigured\":%d,\"failsafeTicks\":%d}",
-		ssid,
-		ip,
-		(int)server_configured,
-		(int)MOTOR_JOYSTICK_FAILSAFE_TICKS);
-	if (len < 0) {
+    strcpy(payload, "{\"wifi\":{\"ssid\":\"");
+    strcat(payload, ssid);
+    strcat(payload, "\",\"ip\":\"");
+    strcat(payload, ip);
+    strcat(payload, "\"},\"serverConfigured\":");
+    char conf_str[8];
+    Serial_Utoa((unsigned int)server_configured, conf_str, sizeof(conf_str));
+    strcat(payload, conf_str);
+    strcat(payload, ",\"failsafeTicks\":");
+    char ticks_str[16];
+    Serial_Utoa((unsigned int)MOTOR_JOYSTICK_FAILSAFE_TICKS, ticks_str, sizeof(ticks_str));
+    strcat(payload, ticks_str);
+    strcat(payload, "}");
+    
+	int len = strlen(payload);
+	if (len <= 0) {
 		Serial_SendHttpJson(link_id, "HTTP/1.1 200 OK", "{\"status\":\"ok\"}");
 		return;
 	}
@@ -1457,9 +1555,24 @@ static void Serial_ShowWaitingScreen(void) {
 	big_display_active = 0u;
 	current_display_mode = SERIAL_DISPLAY_WAITING;
 
-	lcd_BIG_mid();  // Switch to BIG mode for centered "WAITING"
-	dispPrint((char *)"Ohm Patel", 1);
-	dispPrint((char *)"WAITING", 2);  // Show "WAITING" centered on line 2
+	lcd_4line();  // Switch to 4 line mode
+	dispPrint((char *)"Waiting", 1);
+	
+    if (wifi_ip_valid) {
+        char ip_nodots[11];
+        unsigned int i=0, j=0;
+        while(wifi_ip[i] && j<10) {
+            if(wifi_ip[i] != '.') {
+                ip_nodots[j++] = wifi_ip[i];
+            }
+            i++;
+        }
+        ip_nodots[j] = '\0';
+        dispPrint(ip_nodots, 2);
+    } else {
+        dispPrint((char *)"No IP", 2);
+    }
+
 	Serial_UpdateIrAdcLine();
 }
 
@@ -1471,6 +1584,16 @@ static void Serial_UpdateIrAdcLine(void) {
 	Serial_FormatFourDigit(&line[6], ADCRight);
 	line[10] = '\0';
 	dispPrint(line, 3);
+
+    // Timer on line 4
+    char time_line[11] = "Time: ";
+    unsigned int seconds = 0;
+    if (input_active) {
+        seconds = (timer200ms - input_start_time) / 5; // 200ms * 5 = 1s
+    }
+    Serial_FormatFourDigit(&time_line[6], seconds);
+    time_line[10] = '\0';
+    dispPrint(time_line, 4);
 }
 
 static void Serial_FormatFourDigit(char *dest, unsigned int value) {

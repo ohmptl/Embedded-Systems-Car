@@ -569,6 +569,7 @@
       // Button 0: X (Blue) -> Start
       // Button 1: Circle (Red) -> Stop
       // Button 2: Square (Pink) -> Exit
+      // Button 3: Triangle (Green) -> Arrived
       // Button 14: D-Pad Left -> Cal White
       // Button 15: D-Pad Right -> Cal Black
 
@@ -576,6 +577,7 @@
         start: pad.buttons[0].pressed,
         stop: pad.buttons[1].pressed,
         exit: pad.buttons[2].pressed,
+        arrived: pad.buttons[3].pressed,
         cal_white: pad.buttons[14].pressed,
         cal_black: pad.buttons[15].pressed
       };
@@ -584,6 +586,7 @@
       if (pressed.start && !lastIrButtonState.start) sendIrCommand('start');
       if (pressed.stop && !lastIrButtonState.stop) sendIrCommand('stop');
       if (pressed.exit && !lastIrButtonState.exit) sendIrCommand('exit');
+      if (pressed.arrived && !lastIrButtonState.arrived) sendIrCommand('arrived');
       if (pressed.cal_white && !lastIrButtonState.cal_white) sendIrCommand('cal_white');
       if (pressed.cal_black && !lastIrButtonState.cal_black) sendIrCommand('cal_black');
 
