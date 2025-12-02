@@ -36,28 +36,30 @@ extern volatile unsigned int timer200ms;
 // PWM Speeds (Tune these!)
 #define IR_SEARCH_SPEED_L             (15000u)
 #define IR_SEARCH_SPEED_R             (15000u)
-#define IR_ARC_SPEED_L                (18000u)
-#define IR_ARC_SPEED_R                (10000u)
+#define IR_ARC_SPEED_L                (19000u)
+#define IR_ARC_SPEED_R                (9500u)
 #define IR_TURN_SPEED                 (14000u)
-#define IR_FOLLOW_SPEED               (13000u)
+#define IR_FOLLOW_SPEED               (9000u)
 #define IR_EXIT_SPEED                 (16000u)
 #define IR_MAX_PWM                    (30000u)
 
 // Timing (ticks = seconds * 5)
 #define PAUSE_TICKS                   (10u)  // 10 seconds
+#define TRAVEL_TO_MAT_TICKS           (30u)  // 4 seconds (Tuneable)
 #define CIRCLE_DELAY_TICKS            (50u)  // 10 seconds before switching to "BL Circle"
 #define EXIT_TURN_TICKS               (8u)   // Time to pivot for exit
 #define EXIT_DRIVE_TICKS              (25u)  // Time to drive away (5 seconds)
 
 // PID Gains (Tune these!)
-#define K_P                           (3000l)
-#define K_D                           (1000l)
+#define K_P                           (2500l)
+#define K_D                           (1500l)
 
 //------------------------------------------------------------------------------
 // State Machine
 //------------------------------------------------------------------------------
 typedef enum {
     STATE_IDLE = 0,
+    STATE_TRAVEL_TO_MAT,
     STATE_SEARCH_WHITE,
     STATE_SEARCH_BLACK,
     STATE_INTERCEPT_WAIT,
@@ -162,7 +164,7 @@ irline_result_t IRLine_BeginFollowing(void){
     
     IR = ON;
     IRChange = TRUE;
-    IR_EnterState(STATE_SEARCH_WHITE);
+    IR_EnterState(STATE_TRAVEL_TO_MAT);
     return IRLINE_RESULT_OK;
 }
 
@@ -184,17 +186,17 @@ void IRLine_Service(void){
     unsigned int elapsed = timer200ms - state_start_time;
 
     switch(current_state){
-        case STATE_SEARCH_WHITE:
-            // Drive in arc until white detected
+        case STATE_TRAVEL_TO_MAT:
+            // Blind travel to get to the mat area
             set_motor_speeds(IR_ARC_SPEED_L, IR_ARC_SPEED_R);
-            if(IR_OnWhite()){
+            if(elapsed >= TRAVEL_TO_MAT_TICKS){
                 IR_EnterState(STATE_SEARCH_BLACK);
             }
             break;
 
         case STATE_SEARCH_BLACK:
-            // Continue arc until line detected
-            set_motor_speeds(IR_ARC_SPEED_L, IR_ARC_SPEED_R);
+            // Drive straight until line detected
+            set_motor_speeds(IR_SEARCH_SPEED_L, IR_SEARCH_SPEED_R);
             if(IR_OnLine()){
                 IR_EnterState(STATE_INTERCEPT_WAIT);
             }
@@ -208,12 +210,16 @@ void IRLine_Service(void){
             break;
 
         case STATE_TURN:
-            // Turn 90 degrees (pivot left)
-            pivot_left_pwm(IR_TURN_SPEED);
-            // Stop when Right sensor sees line (assuming we approached perpendicular)
-            // Or just turn for a fixed time if sensors are unreliable during turn
-            // Let's try sensor based:
-            if(ADCRight > thresh_right){
+            // Turn 90 degrees (tank turn left)
+            tank_turn_left_pwm(IR_TURN_SPEED);
+            
+            // Minimum turn time to clear the intersection (blind turn)
+            // 3 ticks = ~0.6 seconds. Prevents premature stop on initial intercept.
+            // if(elapsed < 2) break;
+
+            // Stop when Right sensor sees line AND Left sensor sees white
+            // This ensures we are aligned with the edge (Left=White, Right=Black)
+            if(ADCRight > thresh_right && ADCLeft < thresh_left){
                  IR_EnterState(STATE_TURN_WAIT);
             }
             // Timeout safety?
@@ -268,6 +274,9 @@ static void IR_EnterState(ir_state_t next_state){
     state_start_time = timer200ms;
     
     switch(next_state){
+        case STATE_TRAVEL_TO_MAT:
+            IR_SetStatus("BL Start");
+            break;
         case STATE_SEARCH_WHITE:
             IR_SetStatus("Find White");
             break;
@@ -359,27 +368,22 @@ static void IR_Control_PID(void){
     // PD controller
     long p_term = (error * K_P) / 1000;
     long d_term = ((error - last_error) * K_D) / 1000;
-    long correction = p_term + d_term;
+    
+    // Non-linear cubic term for "Smart Grip"
+    // Small errors -> negligible effect (smooth)
+    // Large errors -> massive effect (prevents losing line)
+    // Divisor 150000 tuned so that at error=1000, term is ~6600
+    long cubic_term = (error * error * error) / 150000; 
+    
+    long correction = p_term + d_term + cubic_term;
     
     last_error = error;
     
     long left = IR_FOLLOW_SPEED - correction;
     long right = IR_FOLLOW_SPEED + correction;
     
-    // Hard Correction Overrides (Latch Logic)
-    // Priority: Check if we crossed over to the Left sensor first.
-    if(norm_L > 500){
-        // Left sensor sees Black -> We drifted Right.
-        // Force Hard Left Turn.
-        left = 0; 
-        right += 3000; 
-    }
-    else if(norm_R < 500){
-        // Right sensor sees White (and Left is White) -> We drifted Left.
-        // Force Hard Right Turn.
-        right = 0; 
-        left += 3000; 
-    }
+    // Hard Correction Overrides REMOVED in favor of Cubic Control
+    // The cubic term provides the "grip" smoothly without bang-bang switches.
     
     if(left > IR_MAX_PWM) left = IR_MAX_PWM;
     if(left < MOTOR_LEFT_SAFE_MIN_PWM) left = 0;

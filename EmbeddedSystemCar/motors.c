@@ -182,6 +182,22 @@ void pivot_right_pwm(unsigned int speed) {
     LEFT_FORWARD_SPEED = speed;
 }
 
+// Tank turn left: left wheel reverse, right wheel forward
+void tank_turn_left_pwm(unsigned int speed) {
+    LEFT_FORWARD_SPEED = PWM1_WHEEL_OFF;
+    LEFT_REVERSE_SPEED = speed;
+    RIGHT_REVERSE_SPEED = PWM1_WHEEL_OFF;
+    RIGHT_FORWARD_SPEED = speed;
+}
+
+// Tank turn right: left wheel forward, right wheel reverse
+void tank_turn_right_pwm(unsigned int speed) {
+    LEFT_REVERSE_SPEED = PWM1_WHEEL_OFF;
+    LEFT_FORWARD_SPEED = speed;
+    RIGHT_FORWARD_SPEED = PWM1_WHEEL_OFF;
+    RIGHT_REVERSE_SPEED = speed;
+}
+
 //------------------------------------------------------------------------------
 // Joystick proportional control
 //------------------------------------------------------------------------------

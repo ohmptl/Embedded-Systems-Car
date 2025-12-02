@@ -23,6 +23,8 @@ void end_case(void);
 void set_motor_speeds(unsigned int left_pwm, unsigned int right_pwm);
 void pivot_left_pwm(unsigned int speed);
 void pivot_right_pwm(unsigned int speed);
+void tank_turn_left_pwm(unsigned int speed);
+void tank_turn_right_pwm(unsigned int speed);
 uint8_t Motor_ApplyJoystickVector(int16_t x_axis, int16_t y_axis, unsigned char engaged,
                                  unsigned int *applied_left_pwm, unsigned int *applied_right_pwm);
 void Motor_JoystickFailsafeService(void);
