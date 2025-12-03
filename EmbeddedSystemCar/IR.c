@@ -36,22 +36,22 @@ extern volatile unsigned int timer200ms;
 // PWM Speeds (Tune these!)
 #define IR_SEARCH_SPEED_L             (15000u)
 #define IR_SEARCH_SPEED_R             (15000u)
-#define IR_ARC_SPEED_L                (19000u)
-#define IR_ARC_SPEED_R                (10000u)
+#define IR_ARC_SPEED_L                (10000u)
+#define IR_ARC_SPEED_R                (19000u)
 #define IR_TURN_SPEED                 (14000u)
 #define IR_FOLLOW_SPEED               (9000u)
 #define IR_EXIT_SPEED                 (16000u)
 #define IR_MAX_PWM                    (30000u)
 
 // Timing (ticks = seconds * 5)
-#define PAUSE_TICKS                   (10u)  // 10 seconds
-#define TRAVEL_TO_MAT_TICKS           (30u)  // 4 seconds (Tuneable)
+#define PAUSE_TICKS                   (50u)  // 10 seconds
+#define TRAVEL_TO_MAT_TICKS           (15u)  // 4 seconds (Tuneable)
 #define CIRCLE_DELAY_TICKS            (50u)  // 10 seconds before switching to "BL Circle"
-#define EXIT_TURN_TICKS               (8u)   // Time to pivot for exit
-#define EXIT_DRIVE_TICKS              (25u)  // Time to drive away (5 seconds)
+#define EXIT_TURN_TICKS               (6u)   // Time to pivot for exit
+#define EXIT_DRIVE_TICKS              (20u)  // Time to drive away (5 seconds)
 
 // PID Gains (Tune these!)
-#define K_P                           (2500l)
+#define K_P                           (1900l)
 #define K_D                           (1500l)
 
 //------------------------------------------------------------------------------
@@ -198,7 +198,7 @@ void IRLine_Service(void){
         case STATE_TRAVEL_TO_MAT:
             // Drive straight for 2 seconds
             set_motor_speeds(IR_SEARCH_SPEED_L, IR_SEARCH_SPEED_R);
-            if(elapsed >= 10u){ // 2 seconds
+            if(elapsed >= 5u){ // 2 seconds
                 IR_EnterState(STATE_INITIAL_ARC);
             }
             break;
@@ -206,7 +206,7 @@ void IRLine_Service(void){
         case STATE_INITIAL_ARC:
             // Arc Right for 2 seconds
             set_motor_speeds(IR_ARC_SPEED_L, IR_ARC_SPEED_R);
-            if(elapsed >= 50u){ // 2 seconds
+            if(elapsed >= 40u){ // 2 seconds
                 IR_EnterState(STATE_SEARCH_BLACK);
             }
             break;
@@ -228,7 +228,7 @@ void IRLine_Service(void){
 
         case STATE_TURN:
             // Turn 90 degrees (tank turn left)
-            tank_turn_left_pwm(IR_TURN_SPEED);
+            tank_turn_right_pwm(IR_TURN_SPEED);
             
             // Minimum turn time to clear the intersection (blind turn)
             // 3 ticks = ~0.6 seconds. Prevents premature stop on initial intercept.
@@ -236,7 +236,7 @@ void IRLine_Service(void){
 
             // Stop when Right sensor sees line AND Left sensor sees white
             // This ensures we are aligned with the edge (Left=White, Right=Black)
-            if(ADCRight > thresh_right && ADCLeft < thresh_left){
+            if(ADCRight < thresh_right && ADCLeft > thresh_left){
                  IR_EnterState(STATE_TURN_WAIT);
             }
             // Timeout safety?
@@ -256,8 +256,19 @@ void IRLine_Service(void){
             IR_Control_PID();
             // Switch to Circle mode after some time
             if(elapsed >= CIRCLE_DELAY_TICKS){
-                IR_SetStatus("BL Circle");
+                IR_EnterState(STATE_CIRCLE_WAIT);
             }
+            break;
+
+        case STATE_CIRCLE_WAIT:
+            motorStop();
+            if(elapsed >= PAUSE_TICKS){
+                IR_EnterState(STATE_CIRCLE_CONTINUE);
+            }
+            break;
+
+        case STATE_CIRCLE_CONTINUE:
+            IR_Control_PID();
             break;
 
         case STATE_EXIT_TURN:
