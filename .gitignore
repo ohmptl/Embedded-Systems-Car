@@ -16,5 +16,6 @@ dvt/*
 RemoteSystemsTempFiles
 RemoteSystemsTempFiles/*
 .theia
+.vscode
 Workspace.theia-workspace
 compile_commands.json

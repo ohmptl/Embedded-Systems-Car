@@ -2,7 +2,7 @@
 //  Name:           IR.c
 //  Description:    Infrared emitter management and line navigation helper
 //  Author:         Ohm Patel
-//  Date:           Dec 2025
+//  Date:           Oct 2025 (updated Nov 2025)
 //  IDE:            CCS20.3.0
 //------------------------------------------------------------------------------
 
@@ -17,438 +17,542 @@
 #include "wheels.h"
 
 //------------------------------------------------------------------------------
-// Module Globals
+// Module Globals (defined here, declared in IR.h)
 //------------------------------------------------------------------------------
 unsigned int IR = 0;
 unsigned int IRChange = 0;
 
+// External sensor samples and timing (owned by ADC/Timers)
 extern volatile unsigned int ADCLeft;
 extern volatile unsigned int ADCRight;
 extern volatile unsigned int timer200ms;
 
 //------------------------------------------------------------------------------
-// Constants & Parameters
+// Line-follow tuning constants
 //------------------------------------------------------------------------------
-// Threshold margin to detect line (ADC value > Black - Margin)
-#define IR_THRESHOLD_MARGIN           (100u)
-#define IR_INTERCEPT_OFFSET           (20u)
+#define IR_LINE_THRESHOLD_MARGIN_MIN      (10u)
+#define IR_LINE_THRESHOLD_MARGIN_MAX      (20u)
+#define IR_LINE_SEARCH_LEFT_PWM           (21000u)
+#define IR_LINE_SEARCH_RIGHT_PWM          (11000u)
+#define IR_LINE_ATTACH_SPEED              (16000u)
+#define IR_LINE_ALIGN_BASE_PWM            (13000u)
+#define IR_LINE_FOLLOW_BASE_PWM           (15000u)
+#define IR_LINE_MAX_PWM                   (32000u)
+#define IR_LINE_GAIN_NUMERATOR            (14000l)
+#define IR_LINE_ATTACH_DEFICIT_GAIN       (80l)
+#define IR_LINE_DEFICIT_SLOWDOWN_THRESHOLD (30u)
+#define IR_LINE_DEFICIT_SPEED_DROP        (4000u)
+#define IR_LINE_TARGET_OFFSET             (50u)
+#define IR_LINE_TARGET_MIN_FRACTION       (4u)
+#define IR_LINE_ATTACH_PAUSE_TICKS        (2u)
+#define IR_LINE_ATTACH_TURN_TICKS         (5u)
+#define IR_LINE_ALIGN_TOLERANCE           (25)
+#define IR_LINE_ALIGN_STABLE_TICKS        (5u)
+#define IR_LINE_SEARCH_TIMEOUT_TICKS      (150u)
+#define IR_LINE_EXIT_DURATION_TICKS       (TICKS_PER_SECOND * 3u)
+#define IR_LINE_LOST_BIAS_PWM             (7000)
 
-// PWM Speeds (Tune these!)
-#define IR_SEARCH_SPEED_L             (15000u)
-#define IR_SEARCH_SPEED_R             (15000u)
-#define IR_ARC_SPEED_L                (10000u)
-#define IR_ARC_SPEED_R                (19000u)
-#define IR_TURN_SPEED                 (14000u)
-#define IR_FOLLOW_SPEED               (9000u)
-#define IR_EXIT_SPEED                 (16000u)
-#define IR_MAX_PWM                    (30000u)
-
-// Timing (ticks = seconds * 5)
-#define PAUSE_TICKS                   (50u)  // 10 seconds
-#define TRAVEL_TO_MAT_TICKS           (15u)  // 4 seconds (Tuneable)
-#define CIRCLE_DELAY_TICKS            (50u)  // 10 seconds before switching to "BL Circle"
-#define EXIT_TURN_TICKS               (6u)   // Time to pivot for exit
-#define EXIT_DRIVE_TICKS              (20u)  // Time to drive away (5 seconds)
-
-// PID Gains (Tune these!)
-#define K_P                           (1900l)
-#define K_D                           (1500l)
-
-//------------------------------------------------------------------------------
-// State Machine
-//------------------------------------------------------------------------------
 typedef enum {
-    STATE_IDLE = 0,
-    STATE_TRAVEL_TO_MAT,
-    STATE_INITIAL_ARC,
-    STATE_SEARCH_WHITE,
-    STATE_SEARCH_BLACK,
-    STATE_INTERCEPT_WAIT,
-    STATE_TURN,
-    STATE_TURN_WAIT,
-    STATE_FOLLOW,
-    STATE_CIRCLE_WAIT,
-    STATE_CIRCLE_CONTINUE,
-    STATE_EXIT_TURN,
-    STATE_EXIT_DRIVE,
-    STATE_UTURN_PAUSE,
-    STATE_UTURN_SEARCH,
-    STATE_STOP
-} ir_state_t;
+    IR_LINE_STATE_IDLE = 0,
+    IR_LINE_STATE_SEARCH,
+    IR_LINE_STATE_ATTACH_PAUSE,
+    IR_LINE_STATE_ATTACH_TURN,
+    IR_LINE_STATE_ALIGN,
+    IR_LINE_STATE_FOLLOW,
+    IR_LINE_STATE_EXIT_DRIVE
+} ir_line_state_t;
 
-static ir_state_t current_state = STATE_IDLE;
-static unsigned int state_start_time = 0;
+typedef enum {
+    IR_SIDE_NONE = 0,
+    IR_SIDE_LEFT,
+    IR_SIDE_RIGHT
+} ir_line_side_t;
 
-// Calibration
-static unsigned int white_left = 0;
-static unsigned int white_right = 0;
-static unsigned int black_left = 0;
-static unsigned int black_right = 0;
-static unsigned int thresh_left = 0;
-static unsigned int thresh_right = 0;
-static unsigned char cal_white = 0;
-static unsigned char cal_black = 0;
+typedef struct {
+    unsigned int white_left;
+    unsigned int white_right;
+    unsigned int black_left;
+    unsigned int black_right;
+    unsigned int threshold_left;
+    unsigned int threshold_right;
+    unsigned int attach_target_left;
+    unsigned int attach_target_right;
+    unsigned char white_valid;
+    unsigned char black_valid;
+} ir_line_calibration_t;
 
-//------------------------------------------------------------------------------
-// Helper Prototypes
-//------------------------------------------------------------------------------
-static void IR_Control_PID(void);
-static void IR_SetStatus(const char *msg);
-static unsigned char IR_OnLine(void);
-static unsigned char IR_OnWhite(void);
-static void IR_EnterState(ir_state_t next_state);
+static ir_line_calibration_t ir_calibration = {0};
+static ir_line_state_t ir_line_state = IR_LINE_STATE_IDLE;
+static unsigned int ir_line_state_stamp = 0u;
+static unsigned int ir_line_align_stable = 0u;
+static unsigned int ir_line_lost_ticks = 0u;
+static ir_line_side_t ir_last_detect_side = IR_SIDE_NONE;
 
 //------------------------------------------------------------------------------
-// Public Functions
+// Forward declarations (internal helpers)
 //------------------------------------------------------------------------------
+static void IRLine_EnableEmitter(void);
+static void IRLine_ShowStatus(const char *status);
+static void IRLine_EnterState(ir_line_state_t next);
+static void IRLine_SetArcSpeeds(void);
+static void IRLine_CommandSpeeds(unsigned int left_pwm, unsigned int right_pwm);
+static void IRLine_CommandBalanced(unsigned int base_pwm,
+                                   unsigned int left_sample,
+                                   unsigned int right_sample,
+                                   unsigned char bias_when_lost);
+static void IRLine_HandleSearch(void);
+static void IRLine_HandleAttachPause(void);
+static void IRLine_HandleAttachTurn(void);
+static void IRLine_HandleAlign(void);
+static void IRLine_HandleFollow(void);
+static void IRLine_HandleExitDrive(void);
+static uint8_t IRLine_SensorSeesLine(unsigned int sample, unsigned int threshold);
+static void IRLine_UpdateThresholds(void);
+static unsigned int IRLine_SelectMargin(unsigned int black, unsigned int white);
+static unsigned int IRLine_SelectAttachTarget(unsigned int black);
+static void IRLine_ResetTracking(void);
 
-void IRLine_Init(void){
-    current_state = STATE_IDLE;
-    IR = ON;
-    IRChange = TRUE;
-}
-
+//------------------------------------------------------------------------------
+// Enable/Disable IR subsystem (emitter LED drive)
+//------------------------------------------------------------------------------
 void IR_Update(void){
     if(IR == ON){
-        P2OUT |= IR_LED;
+        P2OUT  |=  IR_LED;
     } else {
-        P2OUT &= ~IR_LED;
+        P2OUT  &= ~IR_LED;
     }
 }
 
-uint8_t IRLine_IsActive(void){
-    return (current_state != STATE_IDLE);
+//------------------------------------------------------------------------------
+// Public control API
+//------------------------------------------------------------------------------
+void IRLine_Init(void){
+    IRLine_ResetTracking();
+    ir_line_state = IR_LINE_STATE_IDLE;
+    ir_line_state_stamp = timer200ms;
 }
 
-uint8_t IRLine_IsCalibrated(void){
-    return (cal_white && cal_black);
+void IRLine_Service(void){
+    if(ir_line_state != IR_LINE_STATE_IDLE){
+        IRLine_EnableEmitter();
+    }
+
+    switch(ir_line_state){
+        case IR_LINE_STATE_IDLE:
+            return;
+        case IR_LINE_STATE_SEARCH:
+            IRLine_HandleSearch();
+            break;
+        case IR_LINE_STATE_ATTACH_PAUSE:
+            IRLine_HandleAttachPause();
+            break;
+        case IR_LINE_STATE_ATTACH_TURN:
+            IRLine_HandleAttachTurn();
+            break;
+        case IR_LINE_STATE_ALIGN:
+            IRLine_HandleAlign();
+            break;
+        case IR_LINE_STATE_FOLLOW:
+            IRLine_HandleFollow();
+            break;
+        case IR_LINE_STATE_EXIT_DRIVE:
+            IRLine_HandleExitDrive();
+            break;
+        default:
+            ir_line_state = IR_LINE_STATE_IDLE;
+            motorStop();
+            break;
+    }
 }
 
 irline_result_t IRLine_CalibrateWhite(irline_sample_t *sample_out){
-    IR = ON;
-    IRChange = TRUE;
-    // Assume sensors are over white
-    white_left = ADCLeft;
-    white_right = ADCRight;
-    cal_white = 1;
-    IR_SetStatus("CAL WHITE");
-    if(sample_out){
-        sample_out->left = white_left;
-        sample_out->right = white_right;
+    if(ir_line_state != IR_LINE_STATE_IDLE){
+        return IRLINE_RESULT_BUSY;
     }
+
+    IRLine_EnableEmitter();
+    ir_calibration.white_left = ADCLeft;
+    ir_calibration.white_right = ADCRight;
+    ir_calibration.white_valid = TRUE;
+    IRLine_UpdateThresholds();
+    IRLine_ShowStatus("CAL WHITE");
+
+    if(sample_out){
+        sample_out->left = ir_calibration.white_left;
+        sample_out->right = ir_calibration.white_right;
+    }
+
     return IRLINE_RESULT_OK;
 }
 
 irline_result_t IRLine_CalibrateBlack(irline_sample_t *sample_out){
-    IR = ON;
-    IRChange = TRUE;
-    // Assume sensors are over black
-    black_left = ADCLeft;
-    black_right = ADCRight;
-    cal_black = 1;
-    
-    // Calculate thresholds (Black - 100)
-    if(black_left > 100) thresh_left = black_left - 100;
-    else thresh_left = 0;
-    
-    if(black_right > 100) thresh_right = black_right - 100;
-    else thresh_right = 0;
-    
-    IR_SetStatus("CAL BLACK");
-    if(sample_out){
-        sample_out->left = black_left;
-        sample_out->right = black_right;
+    if(ir_line_state != IR_LINE_STATE_IDLE){
+        return IRLINE_RESULT_BUSY;
     }
+
+    IRLine_EnableEmitter();
+    ir_calibration.black_left = ADCLeft;
+    ir_calibration.black_right = ADCRight;
+    ir_calibration.black_valid = TRUE;
+    IRLine_UpdateThresholds();
+    IRLine_ShowStatus("CAL BLACK");
+
+    if(sample_out){
+        sample_out->left = ir_calibration.black_left;
+        sample_out->right = ir_calibration.black_right;
+    }
+
     return IRLINE_RESULT_OK;
 }
 
 irline_result_t IRLine_BeginFollowing(void){
-    if(!cal_white || !cal_black) return IRLINE_RESULT_NEED_BLACK;
-    
-    IR = ON;
-    IRChange = TRUE;
-    IR_EnterState(STATE_TRAVEL_TO_MAT);
-    return IRLINE_RESULT_OK;
-}
+    if(ir_line_state != IR_LINE_STATE_IDLE){
+        return IRLINE_RESULT_ALREADY_RUNNING;
+    }
+    if(!ir_calibration.white_valid){
+        return IRLINE_RESULT_NEED_WHITE;
+    }
+    if(!ir_calibration.black_valid){
+        return IRLINE_RESULT_NEED_BLACK;
+    }
 
-void IRLine_StartUturn(void){
-    IR = ON;
-    IRChange = TRUE;
-    IR_EnterState(STATE_UTURN_PAUSE);
+    Wheels_ForceStop();
+    IRLine_ResetTracking();
+    IRLine_EnableEmitter();
+    IRLine_EnterState(IR_LINE_STATE_SEARCH);
+    return IRLINE_RESULT_OK;
 }
 
 irline_result_t IRLine_RequestDone(void){
-    if(current_state == STATE_IDLE) return IRLINE_RESULT_NOT_RUNNING;
-    IR_EnterState(STATE_EXIT_TURN);
+    if(ir_line_state == IR_LINE_STATE_IDLE){
+        return IRLINE_RESULT_NOT_RUNNING;
+    }
+    if(ir_line_state == IR_LINE_STATE_EXIT_DRIVE){
+        return IRLINE_RESULT_ALREADY_RUNNING;
+    }
+    IRLine_EnterState(IR_LINE_STATE_EXIT_DRIVE);
     return IRLINE_RESULT_OK;
 }
 
-void IRLine_ForceStop(void){
-    current_state = STATE_IDLE;
-    motorStop();
-    IR_SetStatus("IR STOP");
+uint8_t IRLine_IsActive(void){
+    return (ir_line_state != IR_LINE_STATE_IDLE) ? 1u : 0u;
 }
 
-void IRLine_Service(void){
-    if(current_state == STATE_IDLE) return;
+uint8_t IRLine_IsCalibrated(void){
+    return (ir_calibration.white_valid && ir_calibration.black_valid) ? 1u : 0u;
+}
 
-    unsigned int elapsed = timer200ms - state_start_time;
-
-    switch(current_state){
-        case STATE_TRAVEL_TO_MAT:
-            // Drive straight for 2 seconds
-            set_motor_speeds(IR_SEARCH_SPEED_L, IR_SEARCH_SPEED_R);
-            if(elapsed >= 5u){ // 2 seconds
-                IR_EnterState(STATE_INITIAL_ARC);
-            }
-            break;
-
-        case STATE_INITIAL_ARC:
-            // Arc Right for 2 seconds
-            set_motor_speeds(IR_ARC_SPEED_L, IR_ARC_SPEED_R);
-            if(elapsed >= 40u){ // 2 seconds
-                IR_EnterState(STATE_SEARCH_BLACK);
-            }
-            break;
-
-        case STATE_SEARCH_BLACK:
-            // Drive straight until line detected
-            set_motor_speeds(IR_SEARCH_SPEED_L, IR_SEARCH_SPEED_R);
-            if(IR_OnLine()){
-                IR_EnterState(STATE_INTERCEPT_WAIT);
-            }
-            break;
-
-        case STATE_INTERCEPT_WAIT:
-            motorStop();
-            if(elapsed >= PAUSE_TICKS){
-                IR_EnterState(STATE_TURN);
-            }
-            break;
-
-        case STATE_TURN:
-            // Turn 90 degrees (tank turn left)
-            tank_turn_right_pwm(IR_TURN_SPEED);
-            
-            // Minimum turn time to clear the intersection (blind turn)
-            // 3 ticks = ~0.6 seconds. Prevents premature stop on initial intercept.
-            // if(elapsed < 2) break;
-
-            // Stop when Right sensor sees line AND Left sensor sees white
-            // This ensures we are aligned with the edge (Left=White, Right=Black)
-            if(ADCRight < thresh_right && ADCLeft > thresh_left){
-                 IR_EnterState(STATE_TURN_WAIT);
-            }
-            // Timeout safety?
-            if(elapsed > 50) { // 10 seconds max turn
-                 IR_EnterState(STATE_TURN_WAIT);
-            }
-            break;
-
-        case STATE_TURN_WAIT:
-            motorStop();
-            if(elapsed >= PAUSE_TICKS){
-                IR_EnterState(STATE_FOLLOW);
-            }
-            break;
-
-        case STATE_FOLLOW:
-            IR_Control_PID();
-            // Switch to Circle mode after some time
-            if(elapsed >= CIRCLE_DELAY_TICKS){
-                IR_EnterState(STATE_CIRCLE_WAIT);
-            }
-            break;
-
-        case STATE_CIRCLE_WAIT:
-            motorStop();
-            if(elapsed >= PAUSE_TICKS){
-                IR_EnterState(STATE_CIRCLE_CONTINUE);
-            }
-            break;
-
-        case STATE_CIRCLE_CONTINUE:
-            IR_Control_PID();
-            break;
-
-        case STATE_EXIT_TURN:
-            // Turn away from circle (Pivot Right)
-            pivot_left_pwm(IR_TURN_SPEED);
-            if(elapsed >= EXIT_TURN_TICKS){
-                IR_EnterState(STATE_EXIT_DRIVE);
-            }
-            break;
-            
-        case STATE_EXIT_DRIVE:
-            // Drive straight away
-            set_motor_speeds(IR_EXIT_SPEED, IR_EXIT_SPEED);
-            if(elapsed >= EXIT_DRIVE_TICKS){
-                IR_EnterState(STATE_STOP);
-            }
-            break;
-
-        case STATE_UTURN_PAUSE:
-            motorStop();
-            if(elapsed >= PAUSE_TICKS){
-                IR_EnterState(STATE_UTURN_SEARCH);
-            }
-            break;
-
-        case STATE_UTURN_SEARCH:
-            // Turn 180 (tank turn left) until line found
-            tank_turn_left_pwm(IR_TURN_SPEED);
-            // Wait a bit before checking line to avoid immediate detection if we are already on it?
-            // Assuming we are OFF the line or need to turn 180.
-            // If we are on the line, we might want to turn off it first.
-            // But "realign 180 degrees" implies we are facing wrong way.
-            if(elapsed > 5 && IR_OnLine()){
-                IR_EnterState(STATE_STOP);
-            }
-            break;
-
-        case STATE_STOP:
-            motorStop();
-            break;
+//------------------------------------------------------------------------------
+// Internal helpers
+//------------------------------------------------------------------------------
+static void IRLine_EnableEmitter(void){
+    if(IR == OFF){
+        IR = ON;
+        IRChange = TRUE;
     }
 }
 
-//------------------------------------------------------------------------------
-// Internal Helpers
-//------------------------------------------------------------------------------
+static void IRLine_ShowStatus(const char *status){
+    char buffer[11];
+    unsigned int i;
 
-static void IR_EnterState(ir_state_t next_state){
-    current_state = next_state;
-    state_start_time = timer200ms;
-    
-    switch(next_state){
-        case STATE_TRAVEL_TO_MAT:
-            IR_SetStatus("BL Start");
+    for(i = 0; i < 10; i++){
+        if(status && status[i]){
+            buffer[i] = status[i];
+        }else{
+            buffer[i] = '\0';
             break;
-        case STATE_INITIAL_ARC:
-            IR_SetStatus("BL Arc");
-            break;
-        case STATE_SEARCH_WHITE:
-            IR_SetStatus("Find White");
-            break;
-        case STATE_SEARCH_BLACK:
-            IR_SetStatus("Find Line");
-            break;
-        case STATE_INTERCEPT_WAIT:
+        }
+    }
+    buffer[10] = '\0';
+    dispPrint(buffer,2);
+}
+
+static void IRLine_EnterState(ir_line_state_t next){
+    ir_line_state = next;
+    ir_line_state_stamp = timer200ms;
+
+    switch(next){
+        case IR_LINE_STATE_IDLE:
+            IRLine_ResetTracking();
             motorStop();
-            IR_SetStatus("Intercept");
+            IRLine_ShowStatus("IR IDLE");
             break;
-        case STATE_TURN:
-            IR_SetStatus("BL Turn");
+        case IR_LINE_STATE_SEARCH:
+            IRLine_ShowStatus("IR SEARCH");
+            IRLine_SetArcSpeeds();
             break;
-        case STATE_TURN_WAIT:
+        case IR_LINE_STATE_ATTACH_PAUSE:
             motorStop();
-            // Status remains BL Turn or can be blank? Spec says "BL Turn - while your car is turning".
-            // "It also must stop for 10 to 20 seconds again after completing the turn".
-            // I'll keep "BL Turn" or change to "BL Travel" early?
-            // Spec: "BL Travel - while your car is traveling along the black line."
-            // I'll leave it as BL Turn during the wait.
+            IRLine_ShowStatus("IR HOLD");
             break;
-        case STATE_FOLLOW:
-            IR_SetStatus("BL Travel");
+        case IR_LINE_STATE_ATTACH_TURN:
+            IRLine_ShowStatus("ATTACH");
+            pivot_left_pwm(IR_LINE_ATTACH_SPEED);
             break;
-        case STATE_CIRCLE_WAIT:
-            motorStop();
-            IR_SetStatus("BL Circle");
+        case IR_LINE_STATE_ALIGN:
+            ir_line_align_stable = 0u;
+            IRLine_ShowStatus("ALIGN");
             break;
-        case STATE_CIRCLE_CONTINUE:
-            IR_SetStatus("BL Circle");
+        case IR_LINE_STATE_FOLLOW:
+            ir_line_lost_ticks = 0u;
+            IRLine_ShowStatus("FOLLOW");
             break;
-        case STATE_EXIT_TURN:
-            IR_SetStatus("BL Exit");
-            break;
-        case STATE_EXIT_DRIVE:
-            IR_SetStatus("BL Exit");
-            break;
-        case STATE_STOP:
-            motorStop();
-            IR_SetStatus("BL Stop");
+        case IR_LINE_STATE_EXIT_DRIVE:
+            IRLine_ShowStatus("EXIT");
+            IRLine_CommandSpeeds(IR_LINE_FOLLOW_BASE_PWM, IR_LINE_FOLLOW_BASE_PWM);
             break;
         default:
             break;
     }
 }
 
-static unsigned char IR_OnWhite(void){
-    // Check if both sensors are reasonably close to calibrated white
-    // Using a margin of 100 to be safe
-    return (ADCLeft < white_left + 100 && ADCRight < white_right + 100);
+static void IRLine_SetArcSpeeds(void){
+    IRLine_CommandSpeeds(IR_LINE_SEARCH_LEFT_PWM, IR_LINE_SEARCH_RIGHT_PWM);
 }
 
-static unsigned char IR_OnLine(void){
-    
-    return (ADCLeft > black_left-50 || ADCRight > black_right-50);
+static void IRLine_CommandSpeeds(unsigned int left_pwm, unsigned int right_pwm){
+    unsigned int left = left_pwm;
+    unsigned int right = right_pwm;
+
+    if(left > IR_LINE_MAX_PWM){ left = IR_LINE_MAX_PWM; }
+    if(right > IR_LINE_MAX_PWM){ right = IR_LINE_MAX_PWM; }
+
+    if(left > 0u && left < MOTOR_LEFT_SAFE_MIN_PWM){
+        left = MOTOR_LEFT_SAFE_MIN_PWM;
+    }
+    if(right > 0u && right < MOTOR_RIGHT_SAFE_MIN_PWM){
+        right = MOTOR_RIGHT_SAFE_MIN_PWM;
+    }
+
+    set_motor_speeds(left, right);
 }
 
-static void IR_Control_PID(void){
-    // Normalized Error Calculation
-    // Goal: Left on White (0), Right on Black (1000)
-    // Error = (Leftness) - (Rightness_Deficit)
-    
-    long range_L = (long)black_left - (long)white_left;
-    long range_R = (long)black_right - (long)white_right;
-    
-    // Avoid divide by zero
-    if(range_L < 100) range_L = 100;
-    if(range_R < 100) range_R = 100;
-    
-    long norm_L = ((long)ADCLeft - (long)white_left) * 1000 / range_L;
-    long norm_R = ((long)ADCRight - (long)white_right) * 1000 / range_R;
-    
-    // Clamp normalized values
-    if(norm_L < 0) norm_L = 0;
-    if(norm_L > 1000) norm_L = 1000;
-    if(norm_R < 0) norm_R = 0;
-    if(norm_R > 1000) norm_R = 1000;
-    
-    // Error Definition:
-    // If Left sees Black (norm_L high) -> Positive Error (Turn Left)
-    // If Right sees White (norm_R low) -> Negative Error (Turn Right)
-    // Ideal: norm_L = 0, norm_R = 1000.
-    // Error = norm_L - (1000 - norm_R)
-    
-    long error = norm_L - (1000 - norm_R);
-    
-    static long last_error = 0;
-    
-    // PD controller
-    long p_term = (error * K_P) / 1000;
-    long d_term = ((error - last_error) * K_D) / 1000;
-    
-    // Non-linear cubic term for "Smart Grip"
-    // Small errors -> negligible effect (smooth)
-    // Large errors -> massive effect (prevents losing line)
-    // Divisor 150000 tuned so that at error=1000, term is ~6600
-    long cubic_term = (error * error * error) / 150000; 
-    
-    long correction = p_term + d_term + cubic_term;
-    
-    last_error = error;
-    
-    long left = IR_FOLLOW_SPEED - correction;
-    long right = IR_FOLLOW_SPEED + correction;
-    
-    // Hard Correction Overrides REMOVED in favor of Cubic Control
-    // The cubic term provides the "grip" smoothly without bang-bang switches.
-    
-    if(left > IR_MAX_PWM) left = IR_MAX_PWM;
-    if(left < MOTOR_LEFT_SAFE_MIN_PWM) left = 0;
-    
-    if(right > IR_MAX_PWM) right = IR_MAX_PWM;
-    if(right < MOTOR_RIGHT_SAFE_MIN_PWM) right = 0;
-    
-    set_motor_speeds((unsigned int)left, (unsigned int)right);
+static void IRLine_CommandBalanced(unsigned int base_pwm,
+                                   unsigned int left_sample,
+                                   unsigned int right_sample,
+                                   unsigned char bias_when_lost){
+    long error = (long)((int)right_sample - (int)left_sample);
+    unsigned long sum = (unsigned long)left_sample + (unsigned long)right_sample;
+    if(sum == 0u){
+        sum = 1u;
+    }
+
+    unsigned int adjusted_base = base_pwm;
+
+    unsigned int target_left = ir_calibration.attach_target_left ? ir_calibration.attach_target_left : ir_calibration.black_left;
+    unsigned int target_right = ir_calibration.attach_target_right ? ir_calibration.attach_target_right : ir_calibration.black_right;
+
+    unsigned int left_deficit = 0u;
+    unsigned int right_deficit = 0u;
+    if(target_left > 0u && left_sample < target_left){
+        left_deficit = target_left - left_sample;
+    }
+    if(target_right > 0u && right_sample < target_right){
+        right_deficit = target_right - right_sample;
+    }
+
+    if((left_deficit > IR_LINE_DEFICIT_SLOWDOWN_THRESHOLD) ||
+       (right_deficit > IR_LINE_DEFICIT_SLOWDOWN_THRESHOLD)){
+        if(adjusted_base > IR_LINE_DEFICIT_SPEED_DROP){
+            adjusted_base -= IR_LINE_DEFICIT_SPEED_DROP;
+        }else{
+            adjusted_base = (MOTOR_LEFT_SAFE_MIN_PWM > MOTOR_RIGHT_SAFE_MIN_PWM) ? MOTOR_LEFT_SAFE_MIN_PWM : MOTOR_RIGHT_SAFE_MIN_PWM;
+        }
+    }
+
+    long delta = (error * IR_LINE_GAIN_NUMERATOR) / (long)sum;
+    long attach_delta = ((long)right_deficit - (long)left_deficit) * IR_LINE_ATTACH_DEFICIT_GAIN;
+    delta += attach_delta;
+
+    if(bias_when_lost &&
+       !IRLine_SensorSeesLine(left_sample, ir_calibration.threshold_left) &&
+       !IRLine_SensorSeesLine(right_sample, ir_calibration.threshold_right)){
+        if(ir_last_detect_side == IR_SIDE_LEFT){
+            delta -= IR_LINE_LOST_BIAS_PWM;
+        }else if(ir_last_detect_side == IR_SIDE_RIGHT){
+            delta += IR_LINE_LOST_BIAS_PWM;
+        }
+    }
+
+    long left_pwm = (long)adjusted_base - delta;
+    long right_pwm = (long)adjusted_base + delta;
+
+    if(left_pwm < (long)MOTOR_LEFT_SAFE_MIN_PWM){
+        left_pwm = MOTOR_LEFT_SAFE_MIN_PWM;
+    }
+    if(right_pwm < (long)MOTOR_RIGHT_SAFE_MIN_PWM){
+        right_pwm = MOTOR_RIGHT_SAFE_MIN_PWM;
+    }
+    if(left_pwm > IR_LINE_MAX_PWM){
+        left_pwm = IR_LINE_MAX_PWM;
+    }
+    if(right_pwm > IR_LINE_MAX_PWM){
+        right_pwm = IR_LINE_MAX_PWM;
+    }
+
+    set_motor_speeds((unsigned int)left_pwm, (unsigned int)right_pwm);
 }
 
-static void IR_SetStatus(const char *msg){
-    char buffer[11];
-    strncpy(buffer, msg, 10);
-    buffer[10] = 0;
-    dispPrint(buffer, 1); // Line 1 (Top Line)
+static void IRLine_HandleSearch(void){
+    unsigned int left = ADCLeft;
+    unsigned int right = ADCRight;
+    uint8_t left_line = IRLine_SensorSeesLine(left, ir_calibration.threshold_left);
+    uint8_t right_line = IRLine_SensorSeesLine(right, ir_calibration.threshold_right);
+
+    if(left_line || right_line){
+        ir_last_detect_side = left_line ? IR_SIDE_LEFT : IR_SIDE_RIGHT;
+        ir_line_lost_ticks = 0u;
+        IRLine_EnterState(IR_LINE_STATE_ATTACH_PAUSE);
+        return;
+    }
+
+    if((timer200ms - ir_line_state_stamp) > IR_LINE_SEARCH_TIMEOUT_TICKS){
+        IRLine_ShowStatus("NO LINE");
+        IRLine_EnterState(IR_LINE_STATE_IDLE);
+    }
+}
+
+static void IRLine_HandleAttachPause(void){
+    motorStop();
+    if((timer200ms - ir_line_state_stamp) >= IR_LINE_ATTACH_PAUSE_TICKS){
+        IRLine_EnterState(IR_LINE_STATE_ATTACH_TURN);
+    }
+}
+
+static void IRLine_HandleAttachTurn(void){
+    if((timer200ms - ir_line_state_stamp) >= IR_LINE_ATTACH_TURN_TICKS){
+        IRLine_EnterState(IR_LINE_STATE_ALIGN);
+    }
+}
+
+static void IRLine_HandleAlign(void){
+    unsigned int left = ADCLeft;
+    unsigned int right = ADCRight;
+    int error = (int)right - (int)left;
+
+    IRLine_CommandBalanced(IR_LINE_ALIGN_BASE_PWM, left, right, 0u);
+
+    if((error < IR_LINE_ALIGN_TOLERANCE) && (error > -IR_LINE_ALIGN_TOLERANCE)){
+        if(ir_line_align_stable < 0xFFFFu){
+            ir_line_align_stable++;
+        }
+    }else{
+        ir_line_align_stable = 0u;
+    }
+
+    if(ir_line_align_stable >= IR_LINE_ALIGN_STABLE_TICKS){
+        IRLine_EnterState(IR_LINE_STATE_FOLLOW);
+    }
+}
+
+static void IRLine_HandleFollow(void){
+    unsigned int left = ADCLeft;
+    unsigned int right = ADCRight;
+    uint8_t left_line = IRLine_SensorSeesLine(left, ir_calibration.threshold_left);
+    uint8_t right_line = IRLine_SensorSeesLine(right, ir_calibration.threshold_right);
+
+    if(left_line && !right_line){
+        ir_last_detect_side = IR_SIDE_LEFT;
+    }else if(right_line && !left_line){
+        ir_last_detect_side = IR_SIDE_RIGHT;
+    }else if(left_line && right_line){
+        ir_last_detect_side = IR_SIDE_NONE;
+    }
+
+    if(left_line || right_line){
+        ir_line_lost_ticks = 0u;
+    }else if(ir_line_lost_ticks < 0xFFFFu){
+        ir_line_lost_ticks++;
+    }
+
+    IRLine_CommandBalanced(IR_LINE_FOLLOW_BASE_PWM, left, right, 1u);
+}
+
+static void IRLine_HandleExitDrive(void){
+    if((timer200ms - ir_line_state_stamp) >= IR_LINE_EXIT_DURATION_TICKS){
+        IRLine_EnterState(IR_LINE_STATE_IDLE);
+    }
+}
+
+static uint8_t IRLine_SensorSeesLine(unsigned int sample, unsigned int threshold){
+    if(!ir_calibration.black_valid){
+        return 0u;
+    }
+    return (sample >= threshold) ? 1u : 0u;
+}
+
+static void IRLine_UpdateThresholds(void){
+    if(!ir_calibration.black_valid){
+        return;
+    }
+
+    unsigned int left_margin = IRLine_SelectMargin(ir_calibration.black_left, ir_calibration.white_left);
+    unsigned int right_margin = IRLine_SelectMargin(ir_calibration.black_right, ir_calibration.white_right);
+
+    if(ir_calibration.black_left > left_margin){
+        ir_calibration.threshold_left = ir_calibration.black_left - left_margin;
+    }else{
+        ir_calibration.threshold_left = ir_calibration.black_left;
+    }
+
+    if(ir_calibration.black_right > right_margin){
+        ir_calibration.threshold_right = ir_calibration.black_right - right_margin;
+    }else{
+        ir_calibration.threshold_right = ir_calibration.black_right;
+    }
+
+    ir_calibration.attach_target_left = IRLine_SelectAttachTarget(ir_calibration.black_left);
+    ir_calibration.attach_target_right = IRLine_SelectAttachTarget(ir_calibration.black_right);
+}
+
+static unsigned int IRLine_SelectMargin(unsigned int black, unsigned int white){
+    if(!ir_calibration.white_valid){
+        return IR_LINE_THRESHOLD_MARGIN_MIN;
+    }
+
+    unsigned int margin = IR_LINE_THRESHOLD_MARGIN_MIN;
+    if(black > white){
+        unsigned int delta = black - white;
+        if(delta < margin){
+            margin = (delta > 2u) ? (delta - 1u) : 1u;
+        }else if(delta > IR_LINE_THRESHOLD_MARGIN_MAX){
+            margin = IR_LINE_THRESHOLD_MARGIN_MAX;
+        }
+    }
+
+    return margin;
+}
+
+static void IRLine_ResetTracking(void){
+    ir_line_align_stable = 0u;
+    ir_line_lost_ticks = 0u;
+    ir_last_detect_side = IR_SIDE_NONE;
+}
+
+static unsigned int IRLine_SelectAttachTarget(unsigned int black){
+    if(black == 0u){
+        return 0u;
+    }
+
+    unsigned int offset = IR_LINE_TARGET_OFFSET;
+    unsigned int fractional_offset = black / IR_LINE_TARGET_MIN_FRACTION;
+    if(fractional_offset == 0u){
+        fractional_offset = 1u;
+    }
+    if(offset > fractional_offset){
+        offset = fractional_offset;
+    }
+
+    if(offset >= black){
+        offset = (black > 1u) ? (black - 1u) : 0u;
+    }
+
+    if(offset == 0u){
+        return black;
+    }
+
+    return black - offset;
 }
 
 
